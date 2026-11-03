@@ -180,6 +180,80 @@ Most changes were small whole-train shifts of a few seconds; a few were real eve
 Key decisions and trade-offs:
 
 - **Compare in PostgreSQL, not in the worker.** This cut egress from about 148 GB a month to about 45 MB.
+- **Write only meaningful changes.** A prediction that moves 5 seconds is noise; one that moves 30 seconds, or changes identity, is news. This keeps Realtime messages inside the free quota.
+- **Subscribe per station, never table-wide.** A typical rider gets about 2 board messages per 15-second run.
+- **Three separate freshness signals**, so each failure reads honestly.
+- **Poll every 15 seconds.** Faster than MTA's own feed refresh would only repeat data.
+
+### Step 4: build and verify the worker
+
+**What was built.** The Edge Function [`poll-subway`](supabase/functions/poll-subway) (a dependency-free protobuf decoder, a board builder, and one-run logic) and 10 migrations, including the static data seeded from MTA's GTFS by [`scripts/generate_static_seed.py`](scripts/generate_static_seed.py). `pg_cron` calls it every 15 seconds through `pg_net`.
+
+**Key mechanisms.** PostgreSQL-side change detection (above), a heartbeat row, a run log, an atomic lease with fencing, per-feed validation, and a 12-station cap on saved stations. A performance fix to the RLS policies (`(select auth.jwt())`) came from Supabase's own advisor.
+
+**Tests.** 11 Deno tests run the worker on saved MTA data and run every migration in an in-memory PostgreSQL (PGlite). Run them with `npm run test:worker`.
+
+**Actual results** (from [`AGENTS.md`](AGENTS.md#verified-live-2026-11-03-19111920-utc)):
+
+| Check | Result |
+|---|---|
+| Cron cadence | 30 fires, 0 failed; gaps 15.01–15.36 s |
+| Worker runs | 33 runs, all `ok`, all 8 feeds healthy every run |
+| Run time | Database 439 ms on average (max 652 ms) |
+| Changed rows only | 307–485 of 982 boards rewritten per run (about 40%); a run 3.5 s after the last wrote 52 |
+| Overlap | Two simultaneous calls gave one `skipped` and one run, with no duplicate writes |
+| Auth | Missing, wrong or bearer-only secrets, and GET requests, all returned 401 |
+| Secrets in logs | None found |
+
+Benchmarks and failure-mode replays are in [`docs/step4-prep/`](docs/step4-prep).
+
+### Step 5: make the page live
+
+Design, map, planner and states are documented in [`docs/step5/IMPLEMENTATION.md`](docs/step5/IMPLEMENTATION.md), with design alternatives in [`REDESIGN_PROPOSAL.md`](docs/step5/REDESIGN_PROPOSAL.md).
+
+- **Design: NYC-inspired "Wayfinding".** Black signage bands, white panels, and HEADWAY's own route marks (not MTA's artwork). The first design direction was rejected on review and redone.
+- **Map.** A review found the first map looked fragmented. The data was fine; the cause was drawing each service pattern as its own line. It was rebuilt as one connected network from the real stations and tracks ([`scripts/build_transit_assets.py`](scripts/build_transit_assets.py)), with a geographic basemap ([`scripts/build_basemap.py`](scripts/build_basemap.py)).
+- **Trip planner** ([`lib/headway/planner.ts`](lib/headway/planner.ts)). A shortest-path search over MTA's schedule using median run times and MTA transfer times, labelled "by schedule".
+- **Realtime.** [`lib/headway/useStations.ts`](lib/headway/useStations.ts) and [`app/providers.tsx`](app/providers.tsx) subscribe per station and handle the heartbeat.
+- **Clerk and saved stations.** [`components/FollowButton.tsx`](components/FollowButton.tsx) saves optimistically, with an undo; a signed-out visitor is sent to sign in and the save completes on return.
+- **States.** The six [browser states](#browser-states). A false "Reconnecting" bar (it showed whenever the worker paused) was found in testing and fixed.
+- **Accessibility, responsive design and testing.** Contrast measured for every text and background pair; reduced-motion support; desktop and 375 px phone layouts; 24 frontend tests.
+
+### Step 6: deploy and test
+
+- **Vercel deployment.** The project `headway` is connected to this repository, deploys `main`, and serves production at https://headway-one.vercel.app. The environment variables are the Clerk keys and URLs only (see [Local development](#local-development)).
+- **Production verification.** On the deployed site: `/`, `/plan`, `/saved`, a station page and the map data files all return HTTP 200. The header's `Live · N s ago` badge reset on every cycle across a 16-second watch with no refresh, and there were no browser console errors and no Reconnecting bar.
+- **The worker runs independently of Vercel.** Checked directly in the database after deploying: `poll-subway` is active on `15 seconds` with **20 runs in 5 minutes and 0 failures**. The latest runs (#584–#586) were `ok`, all 8 feeds healthy, 502–641 ms. The schedule lives in Supabase, so it doesn't depend on any deployment.
+- **Classmate testing.** See [Real user testing](#real-user-testing).
+
+#### One real update, end to end
+
+Run **#586** (read from the production database, 2026-11-03):
+
+1. **21:43:37.26 UTC, Cron.** `pg_cron` fires `poll-subway` through `pg_net`, with the worker secret from Vault.
+2. **Edge Function.** It checks the secret and claims a lease. It fetches the 8 feeds in parallel and decodes them: **4,714 trains**, all 8 feeds healthy, 67 trains rejected by validation. It builds 989 candidate boards.
+3. **PostgreSQL.** `commit_worker_run` compares each board with the stored one. **323 of 989** changed, and only those were upserted. One was platform `A50S`, **Rockaway Av southbound**, which now showed a live **C train toward Euclid Av** due at 21:55:05 UTC. It was written at 21:43:37.55, about 0.3 s after the run began. The heartbeat row was updated too. The run took **502 ms**.
+4. **Realtime.** The change stream carries each changed row to Supabase Realtime, which sends it only to browsers subscribed to that station.
+5. **Browser.** A page open on Rockaway Av receives the row over its websocket and patches that board. A train whose time moved by 30 s or more flashes briefly. Every page also receives the heartbeat, which resets the "Live · N s ago" badge. Between updates, countdowns tick on the device from the absolute arrival time.
+
+Not measured: the delay from the database write to the pixels changing in a specific browser.
+
+## Real user testing
+
+A classmate tested the deployed HEADWAY application. Their feedback was: **"works well"**.
+
+## Testing and verification
+
+| Area | Result | Evidence |
+|---|---|---|
+| Cron cadence | Verified in Step 4: 30 fires, 0 failed, gaps 15.01–15.36 s. Re-checked after deployment: 20 runs in 5 minutes, 0 failed | [AGENTS.md](AGENTS.md#verified-live-2026-11-03-19111920-utc) |
+| Worker execution | 33 live runs, all `ok`, all 8 feeds healthy. 11/11 worker tests pass | [`supabase/functions/tests/`](supabase/functions/tests/poll_subway_test.ts), [benchmark](docs/step3/DATA_FLOW.md#36-benchmark-of-the-postgresql-side-comparison-2026-11-03) |
+| Realtime without refresh | On the deployed site, the freshness badge reset every cycle and boards changed with no navigation. Earlier local run: 13 board changes in 35 s | [Step 5 results](docs/step5/IMPLEMENTATION.md) |
+| Row-level security | 15/15 live checks with two real Clerk test users: each sees only their own rows, cross-user writes are blocked, signed-out and tampered tokens are rejected, worker functions can't be called by users | [Step 5 results](docs/step5/IMPLEMENTATION.md) |
+| Frontend tests | `npm test`: 24/24 (trip planner, freshness logic, map connectivity and alignment, label overlap) | [`tests/`](tests) |
+| Lint and types | `npx eslint .` and `tsc --noEmit` report no problems | Run locally (`npx eslint .`) |
+| Production build | `npm run build` succeeds | Vercel build for `6fd3562` is READY |
+| States | Fresh and Stale (worker paused for about 85 s, then re-enabled) checked in the browser; Reconnecting not shown while the worker is quiet. Down, Partial and Loading are covered by a unit test of the freshness logic (precedence of all six states) | [`tests/headway-core.test.mts`](tests/headway-core.test.mts) |
 | Desktop and mobile | Checked at desktop size and at 375×812: no horizontal scroll, map strip and tab bar on phones | [Step 5 results](docs/step5/IMPLEMENTATION.md) |
 | Contrast | At least 4.98:1 for all text, both themes | [Step 5 results](docs/step5/IMPLEMENTATION.md) |
 
