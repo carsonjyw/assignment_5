@@ -139,7 +139,7 @@ Each step ended in a Git commit, so the repository shows the real progression. L
 | 3. Data-flow plan | [`dd621f8`](https://github.com/carsonjyw/assignment_5/commit/dd621f8) | [`docs/step3/DATA_FLOW.md`](docs/step3/DATA_FLOW.md) |
 | 4. Worker | [`cb3b9eb`](https://github.com/carsonjyw/assignment_5/commit/cb3b9eb), [`b027df6`](https://github.com/carsonjyw/assignment_5/commit/b027df6) | [`supabase/functions/poll-subway/`](supabase/functions/poll-subway), [`supabase/migrations/`](supabase/migrations), [`docs/step4-prep/`](docs/step4-prep) |
 | 5. Make the page live | [`6fd3562`](https://github.com/carsonjyw/assignment_5/commit/6fd3562) | [`docs/step5/IMPLEMENTATION.md`](docs/step5/IMPLEMENTATION.md), [`components/`](components), [`lib/headway/`](lib/headway) |
-| 6. Deploy and test | *(final commit)* | This README, [`AGENTS.md`](AGENTS.md) |
+| 6. Deploy and test | *(final commit)* | This README, [`docs/step6/QUIZ.md`](docs/step6/QUIZ.md), [`AGENTS.md`](AGENTS.md) |
 
 ### Step 1: choose and verify a live data source
 
@@ -225,6 +225,7 @@ Design, map, planner and states are documented in [`docs/step5/IMPLEMENTATION.md
 - **Production verification.** On the deployed site: `/`, `/plan`, `/saved`, a station page and the map data files all return HTTP 200. The header's `Live · N s ago` badge reset on every cycle across a 16-second watch with no refresh, and there were no browser console errors and no Reconnecting bar.
 - **The worker runs independently of Vercel.** Checked directly in the database after deploying: `poll-subway` is active on `15 seconds` with **20 runs in 5 minutes and 0 failures**. The latest runs (#584–#586) were `ok`, all 8 feeds healthy, 502–641 ms. The schedule lives in Supabase, so it doesn't depend on any deployment.
 - **Classmate testing.** See [Real user testing](#real-user-testing).
+- **System quiz.** The system-understanding quiz was completed, one question at a time, and is recorded in [`docs/step6/QUIZ.md`](docs/step6/QUIZ.md).
 
 #### One real update, end to end
 
