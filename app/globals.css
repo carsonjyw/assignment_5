@@ -1,26 +1,177 @@
 @import "tailwindcss";
 
+/* HEADWAY · Wayfinding. Chrome follows the system: Night (near-black) or Day (white). Sign bands stay
+   black in both, like station signage. Arrival panels are always light, so countdown digits are always
+   ink-on-paper. Text is never placed on photos or on line colours (route marks pick their own ink). */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #f6f5f1;
+  --bg-2: #ebeae5;
+  --text: #0d0e10;
+  --muted: #4a4d52;
+  --rule: #d6d6d2;
+  --rule-strong: #0d0e10;
+  /* map: geography is quiet, the network is vivid, selection is strongest */
+  --water: #cbd9e3;
+  --land: #f7f5f0;
+  --land-2: #ebe8e1;
+  --park: #d6e6cc;
+  --shore: #b4c3ce;
+  --line-dim: #e4e6e8;
+  --casing: #ffffff;
+  --station-fill: #ffffff;
+  --station-ring: #0d0e10;
+  --area-text: #5b636c;
+  --water-text: #2c5674;
+  --park-text: #2e6338;
+  --sign: #0d0e10;
+  --sign-text: #ffffff;
+  --sign-muted: #c7c9cc;
+  --panel: #ffffff;
+  --panel-text: #0d0e10;
+  --panel-muted: #4a4d52;
+  --panel-rule: #e2e2de;
+  --live: #0b6b3a;
+  --live-dot: #18a957;
+  --warn: #7a4b00;
+  --warn-bg: #fff1cc;
+  --down: #a3221a;
+  --down-bg: #fde4e1;
+  --flash: #fff0a8;
+  --focus: #1f5fff;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Night tokens: used when the rider picks Dark, or picks Auto (no data-theme) on a dark device.
+   Keep the two blocks below identical. */
+:root { color-scheme: light; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0e10;
+  --bg-2: #17191c;
+  --text: #f4f4f2;
+  --muted: #b9bcc0;
+  --rule: #2b2e33;
+  --rule-strong: #f4f4f2;
+  --water: #0c151c;
+  --land: #1b1e22;
+  --land-2: #15171a;
+  --park: #1b2a20;
+  --shore: #2c3640;
+  --line-dim: #2e3339;
+  --casing: #0d0e10;
+  --station-fill: #ffffff;
+  --station-ring: #0d0e10;
+  --area-text: #a3abb3;
+  --water-text: #84abc7;
+  --park-text: #8fc39b;
+  --sign: #000000;
+  --sign-text: #ffffff;
+  --sign-muted: #c7c9cc;
+  --panel: #f4f4f2;
+  --panel-rule: #d9d9d5;
+  --focus: #8fb0ff;
 }
-
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d0e10;
+    --bg-2: #17191c;
+    --text: #f4f4f2;
+    --muted: #b9bcc0;
+    --rule: #2b2e33;
+    --rule-strong: #f4f4f2;
+    --water: #0c151c;
+    --land: #1b1e22;
+    --land-2: #15171a;
+    --park: #1b2a20;
+    --shore: #2c3640;
+    --line-dim: #2e3339;
+    --casing: #0d0e10;
+    --station-fill: #ffffff;
+    --station-ring: #0d0e10;
+    --area-text: #a3abb3;
+    --water-text: #84abc7;
+    --park-text: #8fc39b;
+    --sign: #000000;
+    --sign-text: #ffffff;
+    --sign-muted: #c7c9cc;
+    --panel: #f4f4f2;
+    --panel-rule: #d9d9d5;
+    --focus: #8fb0ff;
   }
 }
 
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-2: var(--bg-2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-sign: var(--sign);
+  --color-sign-text: var(--sign-text);
+  --color-sign-muted: var(--sign-muted);
+  --color-panel: var(--panel);
+  --color-panel-text: var(--panel-text);
+  --color-panel-muted: var(--panel-muted);
+  --color-panel-rule: var(--panel-rule);
+  --color-live: var(--live);
+  --color-live-dot: var(--live-dot);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-down: var(--down);
+  --color-down-bg: var(--down-bg);
+  --font-sans: var(--font-inter-tight);
+}
+
+html, body { height: 100%; }
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-inter-tight), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.tabular { font-variant-numeric: tabular-nums; }
+.sign-type { font-weight: 800; letter-spacing: -0.015em; }
+.label-caps { font-size: 11px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
+
+/* HEADWAY's signature: black sign bands with a fine white pinstripe near the top edge (a nod to
+   subway signage, not a copy of MTA artwork) */
+.sign-band {
+  background: linear-gradient(var(--sign-text), var(--sign-text)) 0 5px / 100% 1px no-repeat, var(--sign);
+  color: var(--sign-text);
+}
+
+/* ---- purposeful motion: opacity/transform/background only, never text colour, never layout ---- */
+@keyframes hw-flash { from { background: var(--flash); } to { background: transparent; } }
+.flash { animation: hw-flash 2.4s ease-out; }
+@keyframes hw-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+.enter { animation: hw-enter 240ms cubic-bezier(.2,.7,.2,1) both; }
+@keyframes hw-slide { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.slide-in { animation: hw-slide 260ms cubic-bezier(.2,.7,.2,1) both; }
+@keyframes hw-pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+.pop { display: inline-block; animation: hw-pop 340ms ease-out; }
+@keyframes hw-breathe { 50% { opacity: 0.35; } }
+.breathe { animation: hw-breathe 2.4s ease-in-out infinite; }
+@keyframes hw-ping { from { opacity: 0.9; transform: scale(0.5); } to { opacity: 0; transform: scale(1.6); } }
+.map-ping { transform-box: fill-box; transform-origin: center; animation: hw-ping 1.6s ease-out 2; }
+/* paths use pathLength="1", so the draw-on works at any zoom */
+@keyframes hw-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.map-draw { stroke-dasharray: 1; animation: hw-draw 900ms cubic-bezier(.3,.6,.2,1) both; }
+
+/* map area labels: real place names, set quietly under the network */
+.map-area { fill: var(--area-text); font-weight: 600; paint-order: stroke; stroke: var(--land); stroke-width: 0; }
+.map-borough { font-weight: 750; }
+.map-region { font-weight: 650; fill: var(--area-text); }
+.map-water { fill: var(--water-text); font-style: italic; font-weight: 600; }
+.map-park { fill: var(--park-text); font-weight: 650; }
+.press { transition: transform 120ms ease-out, background-color 150ms, border-color 150ms, color 150ms; }
+.press:active { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: none; background: var(--flash); }
+  .enter, .slide-in, .pop, .breathe, .map-ping, .map-draw { animation: none; }
+  .map-draw { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .press, .press:active { transition: none; transform: none; }
 }

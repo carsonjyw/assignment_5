@@ -75,6 +75,35 @@ The full approved design, diagram, rationale, and the egress/write/Realtime benc
   - The dashboard-entered `WORKER_SECRET` has 2 extra whitespace characters. The function trims both sides, so it works.
   - `worker_runs.details` doesn't include `commit_ms`/`total_ms` (they're measured after the commit writes the row). They're in the function's log line, and `duration_ms` covers claim → commit.
 
+## Frontend (Step 5: "Wayfinding", awaiting approval)
+- **Routes:** `app/(explore)/` shares one layout: the map on the left (a 38vh strip on mobile) and a 440 px rail. Pages: `/` Explore, `/station/[id]`, `/line/[route]`, `/plan?from=&to=`, `/saved`. Nav is Explore · Plan · Saved. Only Saved needs sign-in.
+- **Static transit assets:** `public/data/map.json` (track network + station positions) and `public/data/plan.json` (schedule graph), both from `python3 -I scripts/build_transit_assets.py <gtfs_subway_dir> <Stations.csv> public/data`. Regenerate them, don't hand-edit. Station names use the same `complex_name` rule as the database seed.
+  - The network is **one segment per pair of adjacent stations**, carrying every route that runs over it. Express hops are split at the stations they physically pass:
+    - within 30 m of the track;
+    - on a parallel line;
+    - not part of either end's complex;
+    - the passed station's own neighbour also lies on the hop.
+  - `AUDIT_SPLITS=1` prints every split at a station of another trunk colour, for checking.
+  - Never draw per-pattern polylines: that is what made the map look fragmented.
+- **Basemap:** `public/data/basemap.json`, built with `python3 -I scripts/build_basemap.py <download_dir> public/data/map.json public/data/basemap.json`. It uses the same projection as `map.json`, read from its `proj` block.
+  - Sources: DCP borough boundaries (water excluded), NYC Parks properties, and DCP 2020 NTAs (label positions only), all from NYC Open Data, plus Census 2023 counties (1:500k) for NJ, Nassau and Westchester.
+  - Water is "not land". Labels are computed from the real shorelines; nothing is hand-drawn.
+- **Map:** `components/map/SubwayMap.tsx` is plain SVG with no tile service. Layers run geography → network (bundled by trunk colour, offsets in `lib/headway/mapLayout.ts`) → selection (line, journey, station).
+  - Labels are placed per zoom step with collision avoidance and same-name suppression.
+  - `MapContext` carries the selected route, focused station, journey and pick mode. `setPick` and `stationsById` must stay referentially stable, or the effects loop.
+  - It's our own drawing, not the official MTA map, and uses our own route marks (`RouteMark`), never MTA bullets or logos.
+- **Status:** one system freshness badge in the header (all screen sizes, announced to screen readers). Station boards don't repeat it; they only add a warning for their own delayed feeds, a stale banner, or the Down alert.
+- **Planner:** `lib/headway/planner.ts`.
+  - Dijkstra over (platform, route) nodes.
+  - Costs are scheduled: median run times per service × time band, half the headway as the wait, and `transfers.txt` minimum transfer times.
+  - Always label results "by schedule"; live departures come from boards.
+  - Not modelled: holidays (calendar_dates), planned service changes, live delays.
+- **Reconnecting:** a new connection gets a 10 s grace period, and callbacks from a removed channel are ignored. A quiet socket is confirmed over REST (`last_run_id` not newer), so a paused worker shows Stale, never Reconnecting.
+- **Tests:**
+  - `npm test`: planner, core, and map (per-route connectivity, express splits, basemap alignment, label overlap), using node:test.
+  - `deno task test`: the worker.
+  - `npm run build` and `npx eslint .`.
+
 ## Working rules
 - Follow the assignment's steps in order. Don't start the next step until the user approves.
 - Never read, print, or modify `.env*` files. Never put secrets in code.
