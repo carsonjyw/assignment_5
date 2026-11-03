@@ -1,0 +1,36 @@
+=== A -> B ===
+gtfs       feed_ts 17:29:52 -> 17:30:52 (+60s)  trips 246 -> 245
+gtfs-ace   feed_ts 17:29:51 -> 17:30:51 (+60s)  trips 117 -> 118
+gtfs-bdfm  feed_ts 17:29:51 -> 17:30:57 (+66s)  trips 169 -> 172
+gtfs-g     feed_ts 17:29:47 -> 17:30:57 (+70s)  trips 25 -> 26
+gtfs-jz    feed_ts 17:29:51 -> 17:30:56 (+65s)  trips 26 -> 25
+gtfs-l     feed_ts 17:29:52 -> 17:30:57 (+65s)  trips 28 -> 28
+gtfs-nqrw  feed_ts 17:29:53 -> 17:30:56 (+63s)  trips 126 -> 126
+gtfs-si    feed_ts 17:29:55 -> 17:30:55 (+60s)  trips 6 -> 6
+
+trips: common=739 new=7 disappeared=4
+(trip,stop) pairs on common trips: unchanged=10426 prediction_changed=5309 dropped(passed)=190 added=1
+changed share by feed: {'gtfs': '2196/5112', 'gtfs-ace': '629/2329', 'gtfs-bdfm': '1115/3768', 'gtfs-g': '100/415', 'gtfs-jz': '162/533', 'gtfs-l': '159/483', 'gtfs-nqrw': '931/2994', 'gtfs-si': '17/101'}
+delta seconds: min=-178 median=1 max=486 later=2716 earlier=2593
+
+SAMPLES (arrival A -> arrival B, delta):
+  [gtfs] route  7 trip 072600_7..S            SOUTH stop 719S  Court Sq                     arr 17:35:13 -> 17:32:15  (-178s)
+  [gtfs] route  7 trip 072600_7..S            SOUTH stop 720S  Hunters Point Av             arr 17:37:13 -> 17:34:15  (-178s)
+  [gtfs] route  7 trip 072600_7..S            SOUTH stop 721S  Vernon Blvd-Jackson Av       arr 17:38:13 -> 17:35:15  (-178s)
+  [gtfs-bdfm] route  D trip 073500_D..S07R         SOUTH stop A24S  59 St-Columbus Circle        arr 17:43:33 -> 17:43:34  (+1s)
+  [gtfs-bdfm] route  D trip 073500_D..S07R         SOUTH stop D14S  7 Av                         arr 17:45:33 -> 17:45:34  (+1s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L03N  14 St-Union Sq               arr 17:38:15 -> 17:46:21  (+486s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L02N  6 Av                         arr 17:39:45 -> 17:47:51  (+486s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L01N  8 Av                         arr 17:42:15 -> 17:50:21  (+486s)
+
+FULL TRIP 073500_D..S07R route D SOUTH train_id='1D 1215 BPK/STL'
+  D12S  155 St                     17:29:40 -> 17:30:44  (+64s)
+  D13S  145 St                     17:31:48 -> 17:31:49  (+1s)
+  A15S  125 St                     17:35:33 -> 17:35:34  (+1s)
+  A24S  59 St-Columbus Circle      17:43:33 -> 17:43:34  (+1s)
+  D14S  7 Av                       17:45:33 -> 17:45:34  (+1s)
+  D15S  47-50 Sts-Rockefeller Ctr  17:47:03 -> 17:47:04  (+1s)
+  D16S  42 St-Bryant Pk            17:48:33 -> 17:48:34  (+1s)
+  D17S  34 St-Herald Sq            17:50:03 -> 17:50:04  (+1s)
+  D20S  W 4 St-Wash Sq             17:54:03 -> 17:54:04  (+1s)
+  D21S  Broadway-Lafayette St      17:57:33 -> 17:57:34  (+1s)

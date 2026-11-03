@@ -1,0 +1,10 @@
+=== A -> B  (gap 62s) ===
+raw stop-level rows in B: 15834  (naive 'rewrite everything' = 15834 writes per run)
+stop-level rows changed at all (incl. +/-1s jitter) + new: 5494
+stop-level rows changed >= 30s + new: 3051
+stop-level rows changed >= 60s + new: 915
+
+platform boards (next 3 trains per stop_id+direction): 975
+  boards whose content changed (trip set changed or any ETA moved >= 1s): 822
+  boards whose content changed (trip set changed or any ETA moved >= 30s): 607
+  boards whose content changed (trip set changed or any ETA moved >= 60s): 287

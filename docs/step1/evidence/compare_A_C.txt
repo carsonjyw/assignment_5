@@ -1,0 +1,36 @@
+=== A -> C ===
+gtfs       feed_ts 17:29:52 -> 17:35:16 (+324s)  trips 246 -> 244
+gtfs-ace   feed_ts 17:29:51 -> 17:35:21 (+330s)  trips 117 -> 121
+gtfs-bdfm  feed_ts 17:29:51 -> 17:35:21 (+330s)  trips 169 -> 170
+gtfs-g     feed_ts 17:29:47 -> 17:35:18 (+331s)  trips 25 -> 26
+gtfs-jz    feed_ts 17:29:51 -> 17:35:22 (+331s)  trips 26 -> 26
+gtfs-l     feed_ts 17:29:52 -> 17:35:22 (+330s)  trips 28 -> 28
+gtfs-nqrw  feed_ts 17:29:53 -> 17:35:12 (+319s)  trips 126 -> 128
+gtfs-si    feed_ts 17:29:55 -> 17:35:19 (+324s)  trips 6 -> 7
+
+trips: common=709 new=41 disappeared=34
+(trip,stop) pairs on common trips: unchanged=8296 prediction_changed=6507 dropped(passed)=986 added=1
+changed share by feed: {'gtfs': '2511/4779', 'gtfs-ace': '832/2218', 'gtfs-bdfm': '1505/3518', 'gtfs-g': '119/392', 'gtfs-jz': '178/495', 'gtfs-l': '191/441', 'gtfs-nqrw': '1138/2864', 'gtfs-si': '33/96'}
+delta seconds: min=-415 median=5 max=486 later=3536 earlier=2971
+
+SAMPLES (arrival A -> arrival B, delta):
+  [gtfs] route  7 trip 075600_7..S            SOUTH stop 702S  Mets-Willets Point           arr 17:38:10 -> 17:31:15  (-415s)
+  [gtfs] route  7 trip 075600_7..S            SOUTH stop 705S  111 St                       arr 17:39:40 -> 17:32:45  (-415s)
+  [gtfs] route  7 trip 075600_7..S            SOUTH stop 706S  103 St-Corona Plaza          arr 17:41:10 -> 17:34:15  (-415s)
+  [gtfs] route  3 trip 071950_3..N01R         None  stop 226N  116 St                       arr 18:00:29 -> 18:00:34  (+5s)
+  [gtfs] route  3 trip 071950_3..N01R         None  stop 225N  125 St                       arr 18:01:59 -> 18:02:04  (+5s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L03N  14 St-Union Sq               arr 17:38:15 -> 17:46:21  (+486s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L02N  6 Av                         arr 17:39:45 -> 17:47:51  (+486s)
+  [gtfs-l] route  L trip 072350_L..N            NORTH stop L01N  8 Av                         arr 17:42:15 -> 17:50:21  (+486s)
+
+FULL TRIP 071950_3..N01R route 3 None train_id='03 1159+ NLT/148'
+  231N  Clark St                   17:30:29 -> GONE (passed)
+  230N  Wall St                    17:33:59 -> GONE (passed)
+  229N  Fulton St                  17:34:59 -> GONE (passed)
+  228N  Park Place                 17:37:29 -> 17:37:34  (+5s)
+  137N  Chambers St                17:38:29 -> 17:38:34  (+5s)
+  132N  14 St                      17:42:59 -> 17:43:04  (+5s)
+  128N  34 St-Penn Station         17:45:29 -> 17:45:34  (+5s)
+  127N  Times Sq-42 St             17:46:29 -> 17:46:34  (+5s)
+  123N  72 St                      17:51:29 -> 17:51:34  (+5s)
+  120N  96 St                      17:54:29 -> 17:54:34  (+5s)
