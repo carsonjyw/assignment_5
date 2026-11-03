@@ -1,6 +1,6 @@
 # Step 3 — Plan the Data Flow (HEADWAY)
 
-**Status: approved architecture (2026-11-03), revised with review feedback.** Nothing in this document has been built yet. There are no tables, functions, Cron jobs, or Realtime subscriptions.
+**Status: approved architecture (2026-11-03), revised with review feedback, and amended in Step 4 prep (board comparison moved into PostgreSQL; see §3.6 for the benchmark).** Nothing in this document has been built yet. There are no tables, functions, Cron jobs, or Realtime subscriptions.
 Inputs: the Assignment 5 PDF, [Step 1 findings](../step1/STEP1_LIVE_SOURCE.md), and the Supabase docs checked on 2026-11-03.
 
 ---
@@ -26,7 +26,7 @@ flowchart TB
 
   subgraph EF["⏱ Edge Function: poll-subway"]
     direction LR
-    W1["1 Claim run<br/>atomic lease"] --> W2["2 Fetch 8 feeds<br/>in parallel"] --> W3["3 Decode<br/>protobuf"] --> W4["4 Validate feeds<br/>+ map platforms"] --> W5["5 Build boards<br/>next 3 per route"] --> W6["6 Diff: meaningful<br/>changes only"] --> W7["7 Commit in one tx<br/>fenced by run_id"]
+    W1["1 Claim run<br/>atomic lease"] --> W2["2 Fetch 8 feeds<br/>in parallel"] --> W3["3 Decode<br/>protobuf"] --> W4["4 Check fetch,<br/>decode, feed age"] --> W5["5 Build candidate boards<br/>next 3 per route"] --> W6["6 Send to<br/>commit_worker_run()"]
   end
 
   STATIC[("routes · stations · platforms · route_stops<br/>static GTFS seed, public")]
@@ -34,6 +34,8 @@ flowchart TB
   STATUS[("worker_status<br/>heartbeat + per-feed health, public read")]
   RUNS[("worker_runs<br/>run log + lease, private")]
   FOLLOWS[("follows<br/>user-owned, RLS on Clerk sub")]
+
+  COMMIT[["commit_worker_run() in PostgreSQL<br/>validate · reject stale feeds · carry over ·<br/>diff vs stored · fenced upsert · heartbeat · log<br/>(one transaction)"]]
 
   RT{{"Supabase Realtime<br/>filtered postgres_changes"}}
 
@@ -43,10 +45,12 @@ flowchart TB
 
   MTA == "protobuf, ~650 KB" ==> EF
   CRON == "HTTP POST + secret" ==> EF
-  STATIC -. "platform map" .-> EF
-  EF == "changed boards only" ==> BOARDS
-  EF -- "heartbeat + feed health, every run" --> STATUS
-  EF <-- "claim lease / finish run" --> RUNS
+  EF == "candidate boards (~628 KB in) · reply ~150 B out" ==> COMMIT
+  STATIC -. "platform + route map" .-> COMMIT
+  COMMIT == "changed boards only (~300 / run)" ==> BOARDS
+  COMMIT -- "heartbeat + feed health, every run" --> STATUS
+  COMMIT -- "finish run row" --> RUNS
+  EF -- "claim lease" --> RUNS
   BOARDS == "UPDATE events" ==> RT
   STATUS -- "UPDATE events" --> RT
   RT == "websocket: only followed / open stations" ==> PAGE
@@ -59,7 +63,7 @@ flowchart TB
   classDef sched fill:#e8f0fe,stroke:#3b6fd8,color:#111;
   classDef user fill:#fff1e0,stroke:#d97a00,color:#111;
   classDef store fill:#eef7ee,stroke:#2e8b57,color:#111;
-  class CRON,W1,W2,W3,W4,W5,W6,W7,F1,F2,F3,F4,F5,F6,F7,F8 sched;
+  class CRON,W1,W2,W3,W4,W5,W6,COMMIT,F1,F2,F3,F4,F5,F6,F7,F8 sched;
   class USER,CLERK,PAGE user;
   class STATIC,BOARDS,STATUS,RUNS,FOLLOWS store;
 ```
@@ -71,7 +75,7 @@ Solid arrows carry data. Dotted arrows are reads the worker uses for its decisio
 | | Scheduled loop (every 15 s) | User loop (on demand) |
 |---|---|---|
 | Starts with | pg_cron fires `pg_net.http_post` | A rider opens Headway |
-| Path | Cron → Edge Function → claim lease → MTA × 8 → decode → validate → boards (next 3 per route) → diff → one atomic commit (boards + `worker_status` + `worker_runs`) | Clerk sign-in → page reads boards + stations → subscribes to Realtime for the visible platforms → follows/unfollows a station |
+| Path | Cron → Edge Function → claim lease → MTA × 8 → decode → feed checks → candidate boards (next 3 per route) → **`commit_worker_run` in Postgres**: validate → diff → fenced upsert of changed boards + `worker_status` + `worker_runs`, one transaction | Clerk sign-in → page reads boards + stations → subscribes to Realtime for the visible platforms → follows/unfollows a station |
 | Writes | Only changed `platform_boards` rows, 1 `worker_status` update, 1 `worker_runs` row | Only the user's own `follows` rows |
 | Who it acts as | The worker's secret key, server-side only. RLS is bypassed, so the worker can write public tables | The user's Clerk session token. RLS checks `sub` |
 
@@ -89,7 +93,7 @@ Solid arrows carry data. Dotted arrows are reads the worker uses for its decisio
 | User-owned (1) | `follows` |
 
 RLS is on for every table: the project's existing `rls_auto_enable` event trigger enables it automatically, and each table still gets explicit policies.
-The worker writes through **three SQL functions** (§3.3), not direct table writes: `claim_worker_run`, `commit_worker_run`, `fail_worker_run`. They aren't tables, but they are part of the schema.
+The worker writes through **three SQL functions** (§3.3), never directly to tables: `claim_worker_run`, `commit_worker_run`, `fail_worker_run`, plus the helper `board_changed` used inside the commit. They aren't tables, but they are part of the schema. **The worker never reads boards or status:** comparing new boards with stored ones happens inside `commit_worker_run`, so stored data never leaves the database (egress, §3.6).
 Static tables are loaded once from MTA static GTFS (`stops.txt`, `routes.txt`, `trips.txt`/`stop_times.txt`, `Stations.csv`) by a seed script in Step 4.
 
 ### 2.1 `routes`: public, static (29 rows)
@@ -168,11 +172,12 @@ Cost, measured on Step 1 data (62 s gap): **678 boards changed with per-route vs
 | Assigned / live status | `live` flips | **Immediate** |
 | Prediction disappears | Entry removed, or the board goes from non-empty to `[]` | **Immediate** |
 | Route / destination | `route_id` or `headsign` differs for the same `trip_id` | **Immediate** |
-| Feed health of a train | `carried` flips, so riders know a time is no longer live | **Immediate** |
+| Feed health of a train | `carried` flips, so riders know a time is no longer live. Trains are marked carried only from a feed's **2nd consecutive** failed run, so a single 15 s blip doesn't rewrite hundreds of boards | **Immediate** (once marked) |
 | ETA fluctuation | Same trip, `|eta_new − eta_stored| ≥ 30 s` | **30 s** |
 
 Everything else (±1–29 s jitter on the same trains in the same order) is skipped. Comparing against the stored value means small drift adds up and is eventually written. The page counts down locally from `eta`, so time passing never needs a write.
-Measured on Step 1 data (62 s, per-route): of 678 changed boards, 460 changed for ETA ≥ 30 s, 163 for identity/order, 51 for arriving-window, and 4 for attributes. Per 15 s run, expect roughly 100–170 boards.
+The rule lives in one SQL function, `board_changed(stored, new, now)`, called by `commit_worker_run`. It is the single source of truth: the Deno test (§3.5) checks the same cases against it.
+Measured (§3.6) with live snapshots taken exactly 15 s apart: **302 of 975 boards change per run.** The breakdown is 218 for ETA ≥ 30 s, 56 for identity/order, 14 for `live`, and 7 for arriving-window. ETA revisions of 30 s or more are genuinely frequent in MTA data. A 60 s threshold would give 170 per run, but barely changes what a rider receives (8 vs 9 messages per run at three hubs), so 30 s stays.
 Index: `station_id`.
 
 ### 2.6 `worker_status`: public, 1 row, **Realtime: yes**
@@ -195,8 +200,9 @@ Per-feed health in `feeds`:
   "feed_ts": "2026-11-03T17:35:21Z", // MTA's own header.timestamp (when MTA generated the data)
   "fetched_at": "…",               // when the worker received it
   "last_ok_at": "…",               // last run where this feed was healthy
-  "fail_streak": 0,                // consecutive unhealthy runs
-  "reason": null                   // "timeout" | "http_503" | "decode" | "feed_too_old" | "not_newer" | "unmapped_spike" | "empty"
+  "fail_streak": 0,                // consecutive unhealthy runs (computed in SQL from the stored value)
+  "reason": null                   // worker: "timeout" | "http_503" | "decode" | "feed_too_old"
+                                   // SQL:    "not_newer" | "unmapped_spike" | "empty"
 }
 ```
 
@@ -259,11 +265,9 @@ Also planned: revoke `execute` on `public.rls_auto_enable()` from `anon` and `au
 | 1 | **Claim the run (atomic)** | RPC `claim_worker_run()` returns a new `run_id` or `null`. See §3.3. `null` means another live run holds the lease: record nothing more and exit |
 | 2 | **Fetch** | All 8 feeds in parallel with `Promise.allSettled`, 6 s timeout each (`AbortController`), one quick retry on a network error. **Hard run budget of 12 s**, aborted well inside the 30 s lease and the 150 s wall clock |
 | 3 | **Decode** | `npm:gtfs-realtime-bindings` (protobufjs). Step 1 measured ~5–13 ms for all 8 feeds, far below the 2 s CPU limit |
-| 4 | **Validate each feed** | A feed is **unhealthy** for this run if any of these hold: fetch fails or times out (`timeout`, `http_5xx`); decode throws (`decode`); `now − header.timestamp > 90 s`, meaning MTA stopped updating even though HTTP said 200 (`feed_too_old`); `header.timestamp` is **older than the last timestamp we accepted for that feed**, e.g. a stale CDN copy (`not_newer`); it has 0 trip updates (`empty`); or more than 20% of its `stop_id`s don't map to `platforms`, a sign the format changed (`unmapped_spike`). If `header.timestamp` **equals** the last accepted value, the feed is healthy but unchanged, and its trains are reused |
-| 5 | **Validate each stop update** | Skip unmapped `stop_id`s (0.8% in Step 1); skip `eta < now − 30 s` (lingering past stops); skip `eta > now + 90 min`; `eta = arrival ?? departure`, with `kind` recording which one was used |
-| 6 | **Build boards** | Group all valid `(trip, platform)` entries from **healthy** feeds by `stop_id` (this merges A/B/C/D at 125 St), sort by `eta`, keep the **next 3 per route**. `headsign` = name of the trip's last stop. For an **unhealthy** feed, carry over its trains from the stored boards, marked `carried: true` and still filtered to `eta ≥ now − 30 s`. One broken feed never blanks a shared station, and riders can see which times aren't live |
-| 7 | **Diff** | One select of all ~992 stored boards, then apply the change rule in §2.5. **Only rows that meet it are sent.** Upserting an unchanged row would still emit a Realtime event |
-| 8 | **Commit (atomic)** | One RPC `commit_worker_run(run_id, changed_boards, feed_health, counts)` does everything in **a single transaction** (§3.3): upserts boards, updates `worker_status`, and finishes the `worker_runs` row. Either all of it lands or none of it does |
+| 4 | **Check each feed (worker side)** | A feed is reported `ok: false` if the fetch fails or times out (`timeout`, `http_5xx`), decode throws (`decode`), or `now − header.timestamp > 90 s`, meaning MTA stopped updating although HTTP said 200 (`feed_too_old`). The worker reports **every** feed with its `header.timestamp`. The checks that need stored or static data run in SQL (step 6) |
+| 5 | **Build candidate boards** | For **healthy** feeds only: `eta = arrival ?? departure` (`kind` records which); skip `eta < now − 30 s` and `eta > now + 90 min`; group by `stop_id` (merging A/B/C/D at 125 St); keep the **next 3 per route**; `headsign` = the trip's last stop. Stop IDs are sent as-is, and SQL decides which are unknown |
+| 6 | **Commit (atomic, in PostgreSQL)** | One RPC, `commit_worker_run(run_id, feeds, boards)`. Request ≈ 628 KB (data going *into* the database isn't egress), reply ≈ 130–230 B. In **one transaction** it: **validates** the input; **rejects** feeds whose timestamp is older than the last accepted one (`not_newer`), whose stop IDs are > 20% unknown (`unmapped_spike`), or that report `ok` but give 0 valid trains (`empty`); **carries over** stored trains for rejected feeds; **rebuilds** next-3-per-route boards; **diffs** them against stored boards with `board_changed`; **upserts only changed boards**, fenced by `run_id`; updates `worker_status` (heartbeat + per-feed health); and finishes the `worker_runs` row. See §3.3 |
 | — | On any exception | `fail_worker_run(run_id, error)` marks the run `error` and updates `worker_status.last_status = 'error'`, so the page can show **Down**. Boards are left untouched |
 
 ### 3.3 Concurrency: atomic claim, fencing, and no stale overwrites
@@ -305,8 +309,17 @@ update worker_status set ... where id = 1 and last_run_id < $run_id;
 ```
 Suppose run 41 hangs past its lease, run 42 claims and commits, and then run 41 wakes up. Run 41's commit finds its `worker_runs` row already marked `superseded`, raises, and rolls back. Even if it got past that check, the `run_id <` guards would reject every row.
 
-**③ Per-feed timestamp check: never go backwards in MTA time.**
+**③ Per-feed timestamp check, inside the commit: never go backwards in MTA time.**
 The worker accepts a feed only if its `header.timestamp` is ≥ the `feed_ts` stored in `worker_status.feeds` (step 4). An older payload, such as a cached copy, is treated as unhealthy (`not_newer`), so its older predictions can't replace newer ones.
+
+**Input validation in `commit_worker_run`** (from security definer code, executable only by `service_role`):
+| Level | Check | On failure |
+|---|---|---|
+| Call | `run_id` present; `feeds` is an object with **exactly** the 8 feed keys; `boards` is an array of ≤ 2,000 entries | Exception: the whole call is rolled back, and the worker then calls `fail_worker_run` |
+| Lease | The run row is `running` (locked `for update`) and its lease hasn't expired | Exception `superseded`, rolled back |
+| Feed | `ok`, `feed_ts` present and ≥ stored; ≤ 20% unknown stops; ≥ 1 valid train | Feed rejected: its trains are carried, `reason` recorded |
+| Train | `stop_id` exists in `platforms`; `route_id` exists **and belongs to the claimed feed** (`routes.feed`); `eta` is a number within [now − 30 s, now + 90 min]; `kind` ∈ {arr, dep}; `live` is boolean; `trip_id` is 1–64 chars; `headsign` truncated to 100 | Train dropped and counted in `trains_rejected` |
+| Board | Duplicate `trip_id` per platform → keep one; > 3 per route → keep the soonest 3 | Normalized, not an error |
 
 **④ Idempotent writes.**
 Boards are keyed by `stop_id` and only overwritten by a newer `run_id`. Re-running the same input produces an empty diff. A retried request is harmless.
@@ -314,9 +327,11 @@ Boards are keyed by `stop_id` and only overwritten by a newer `run_id`. Re-runni
 ### 3.4 Failure handling
 | Situation | Behavior | Page shows |
 |---|---|---|
-| One feed times out / 5xx / too old / not newer | Run `partial`. That feed's trains are carried over with `carried: true`; `feeds[feed].ok = false` | **Partial** on affected lines only |
+| One feed fails a single run (timeout / 5xx / too old / not newer) | Run `partial`; `feeds[feed].ok = false`. Its stored trains are kept **unchanged** (not yet marked carried) and only expired ones drop. Measured: **78** board writes for a one-run blip in the largest feed | **Partial** on affected lines |
+| Same feed fails a 2nd run in a row | Its trains get `carried: true`. Measured: **488** writes once, then normal; **357** writes when it recovers | **Partial**, carried times greyed |
 | A feed keeps failing (`fail_streak` ≥ 4, ~60 s) | Same, and its carried trains expire naturally as their ETAs pass | Affected lines: **Down** |
-| All 8 feeds unhealthy, or code throws | `fail_worker_run`: run `error`, boards untouched | **Down** |
+| All 8 feeds unhealthy, or code throws | Run `error` (via commit or `fail_worker_run`). Boards are never blanked: measured **0 of 975** emptied even when all feeds reported `ok` with only invalid trains | **Down** |
+| MTA changes a feed's stop IDs (format change) | > 20% unknown stops, so that feed is rejected as `unmapped_spike`; other feeds are unaffected (measured) | **Partial / Down** for those lines |
 | Function crashes / times out before commit | Its transaction never happened, so nothing is half-written. The lease expires after 30 s, and the next claim marks it `superseded` | **Stale** after 60 s without a heartbeat, then recovers on its own |
 | Two invocations overlap | Second claim returns `null` and exits | Nothing visible |
 | Old run wakes up after a newer one committed | Commit rejected by fencing, rolled back | Nothing visible |
@@ -324,17 +339,63 @@ Boards are keyed by `stop_id` and only overwritten by a newer `run_id`. Re-runni
 | Database unreachable from the worker | Can't write status either | **Stale** (silence, never false-Fresh) |
 
 ### 3.5 Test (required by the PDF)
-A Deno test runs steps 3–7 on the saved Step 1 fixtures (`docs/step1/evidence/raw/A_*.pb` then `C_*.pb`) with a fixed "now". It checks that:
-* Boards are built for all routes: 125 St southbound has A, B, C, and D entries.
-* The changed set matches known diffs: L `072350_L..N` at `L03N` moved +486 s, so it's written; trains shifted only ±1–5 s in the same order aren't.
-* Each immediate rule triggers on its own: identity, order, departure, arriving window, `live` flip, headsign change, `carried` flip.
-* Unmapped stops are skipped.
-* A corrupted or older-timestamp feed is marked unhealthy, and its trains are carried, not dropped.
+`deno test` runs the **real worker code and the real migration SQL** on saved MTA responses. There is no network and no Supabase involved: the SQL runs in an in-memory PGlite Postgres, the same way the §3.6 benchmark did.
+1. **Worker side (steps 3–5)** on the saved Step 1 fixtures (`docs/step1/evidence/raw/A_*.pb`, `C_*.pb`) with a fixed "now":
+   * Decode succeeds.
+   * 125 St southbound has A, B, C, and D entries (next 3 per route).
+   * Trains outside [now − 30 s, now + 90 min] are excluded.
+   * A corrupted or too-old feed is reported `ok: false`.
+2. **Commit side (step 6)**: apply the migration to PGlite, seed platforms and routes, then commit fixture A followed by fixture C:
+   * L `072350_L..N` at `L03N` (+486 s) is written.
+   * A train shifted only ±1–5 s in the same order is **not** written.
+   * Each immediate rule in `board_changed` triggers on its own: identity, order, departure, arriving window, `live`, `kind`, headsign, `carried`.
+   * Unknown stops and route/feed mismatches are rejected and counted.
+   * A one-run feed failure keeps trains unmarked; a second failure marks them carried; nothing is ever blanked.
+   * Identical replay writes 0.
+3. **Concurrency (SQL)**:
+   * Two `claim_worker_run()` calls in a row: the second returns `null`.
+   * An expired lease is superseded.
+   * A commit from an older `run_id` raises `superseded` and changes no rows.
+   * An invalid `feeds` object raises `invalid_input`.
 
-A SQL test (run in a transaction and rolled back) checks the concurrency guarantees:
-* Two `claim_worker_run()` calls in a row: the second returns `null`.
-* An expired lease is superseded.
-* A commit with a lower `run_id` changes no board rows.
+### 3.6 Benchmark of the PostgreSQL-side comparison (2026-11-03)
+**Method.** The prototype functions (`claim_worker_run`, `commit_worker_run`, `board_changed`) were replayed against **five real snapshots** in one transaction that was rolled back: Step 1's A/B/C, plus two new live snapshots, D and E, taken **exactly 15 s apart** at 18:30:55 and 18:31:10 UTC. The run used all 992 real platforms and 29 routes.
+It ran in PGlite (PostgreSQL compiled to WebAssembly), because the 1 MB script is too large for the MCP SQL tool. WebAssembly is slower than Supabase's native Postgres, so the timings are an upper bound.
+
+| Scenario | Status | Boards written | Commit time |
+|---|---|---|---|
+| Initial fill | ok | 975 (all, once) | 87 ms |
+| **Live, 15 s after previous run** | ok | **302** | 88 ms |
+| Step 1 gaps: 62 s / 264 s | ok | 717 / 922 | 83–99 ms |
+| Largest feed (`gtfs`) fails 1 run | partial | 78 | 76 ms |
+| …fails a 2nd run (trains marked carried) | partial | 488 | 75 ms |
+| …recovers | ok | 357 | 81 ms |
+| Identical replay | ok | **0** | 81 ms |
+| L feed stop IDs renamed (format change) | partial (`gtfs-l` rejected) | 17 | 79 ms |
+| Older payload replayed late | error (all `not_newer`) | 48 (expired trains dropped) | 55 ms |
+| Second claim while a run is live | `null` | — | — |
+| Stale run commits after a newer run | `superseded`, rolled back | 0 | — |
+| Feeds object missing feeds | `invalid_input`, rolled back | 0 | — |
+| All feeds "ok" but only invalid trains | error, all 8 `empty` | 0 boards emptied | — |
+
+**Egress (5 GB/month free).**
+| | Old plan (worker reads boards) | New plan (diff in SQL) |
+|---|---|---|
+| Per run | 837 KB read | ~150 B reply + ~100 B claim |
+| Per month at 15 s | **~148 GB** ❌ | **~45 MB** ✅ |
+
+Realtime egress is separate: about 3 KB per run per open tab (2.1 board rows of ~0.9 KB, plus a ~1.2 KB heartbeat), so ~0.75 MB per tab-hour.
+
+**Writes.** ~302 board upserts per run (~1.7M a day) on a ~992-row table, plus 1 status update and 2 run-log writes. That's tiny for Postgres; autovacuum handles the dead rows. `cron.job_run_details` and `worker_runs` are pruned daily.
+
+**Realtime messages (2M/month, 100/s free).**
+* Measured over a 15 s gap, a rider following **3 random stations** gets **2.1 board messages per run on average (95th percentile: 5)**, plus 1 heartbeat. That's about 720 messages per tab-hour, so **the 2M monthly quota covers ~2,800 tab-hours**.
+* A hub-heavy rider (Times Sq + 125 St + Union Sq, 18 platforms) gets 9 per run.
+* **Per-second cap:** each run's changes are delivered in a burst. About 30 simultaneous typical tabs (~3 messages each) stays under 100/s.
+* **Mitigations:** the page unsubscribes while its tab is hidden and after 30 minutes idle; there are never table-wide subscriptions; the REST fallback covers reconnects.
+* Grouping messages per station instead of per platform would save only ~30%, so platform rows stay.
+
+**Not yet measured, to check after the first deploy:** whether a ~628 KB RPC request body is accepted by Supabase's API gateway (if not, the payload has a 2–3× smaller array form); whether MTA serves Supabase's cloud IPs as it served my laptop; and native-Postgres commit time.
 
 ---
 
@@ -348,7 +409,7 @@ A SQL test (run in a transaction and rolled back) checks the concurrency guarant
 | **Every page** | `worker_status` | `worker_status` UPDATE, about 1 message per run |
 
 * The page subscribes only while visible and unsubscribes on route change or tab close. There are never table-wide subscriptions.
-* Messages per open tab ≈ (changed boards for its stations per run) + 1 heartbeat. That's about 1–3 per 15 s, or ~6–17k per day per tab left open 24 h. Free quota is 2M per month and 100 messages per second.
+* Messages per open tab ≈ (changed boards at its stations per run) + 1 heartbeat. Measured: **~3 per 15 s for a rider following 3 stations**, so 2M per month ≈ 2,800 tab-hours (§3.6). The page **pauses its subscriptions while the tab is hidden** and after 30 minutes idle, then refetches on return. Free limits: 2M per month and 100 per second.
 * **Fallback if this gets large:** switch to Broadcast-from-database, one topic per station. It isn't needed at classroom scale.
 
 ### 4.2 Clerk + Supabase
@@ -426,7 +487,7 @@ Evaluated per station card, top row first (the first match wins). The connection
 |---|---|---|---|
 | **MTA feeds** | HTTP GET | Protobuf `FeedMessage`: header timestamp + trip updates (trip_id, route_id, stop_id, arrival/departure epoch) | **Format change:** decode fails, or unmapped stops pass 20%. The feed is marked unhealthy, its trains are carried (`carried: true`), the run is `partial`/`error`, the page shows Partial/Down for those lines, and `worker_status.feeds[f].reason` says why. **Frozen feed** (200 OK, but `header.timestamp` stops advancing): `feed_too_old` after 90 s, so Partial/Down, even though the worker run succeeded |
 | **Cron** | The schedule | One HTTP POST every 15 s | **Stops:** no heartbeat, page shows Stale after 60 s. **Fires twice:** second claim returns `null` |
-| **Worker** | 8 protobuf payloads, stored boards, platform map | Changed board rows + feed health + counts, in one `commit_worker_run` | **Fails:** `fail_worker_run`, page shows Down, boards untouched. **Hangs:** lease expires after 30 s, next run supersedes it, and its late commit is rejected by fencing. **Writes every row:** Realtime quota burns. Guarded by the diff and visible as `boards_changed ≈ 992` in `worker_runs` |
+| **Worker** | 8 protobuf payloads (it reads nothing from the database) | Candidate boards + feed reports, sent to `commit_worker_run`, which diffs and writes in SQL | **Fails:** `fail_worker_run`, page shows Down, boards untouched. **Hangs:** lease expires after 30 s, next run supersedes it, and its late commit is rejected by fencing. **Writes every row:** Realtime quota burns. Guarded by the SQL diff and visible as `boards_changed ≈ 975` in `worker_runs`. **Starts reading boards back:** egress jumps to ~5 GB a day. Forbidden in AGENTS.md |
 | **Postgres** | One atomic commit per run from the worker; follows from users | Committed rows + WAL changes for Realtime | **`trains` JSON shape changes:** the page's parser breaks, so the shape lives in one shared TypeScript type used by the worker and the page. **Commit fails:** the whole transaction rolls back, so no half-updated boards |
 | **Realtime** | WAL changes for published tables | Filtered UPDATE events to subscribed tabs | **Disconnects:** Reconnecting banner, plus the REST fallback for status every 15 s, then a refetch on reconnect. Never a false Fresh. **Missing publication, grant, or RLS:** silence with no error (PDF warning). The 30 s heartbeat-event check (signal C) exposes it immediately |
 | **Clerk** | Sign-in | Session JWT (`sub` = user ID) | **Token missing or expired:** follows return nothing or fail. Boards still work, since they're public. **Supabase third-party auth not configured:** every follow insert fails RLS |
@@ -446,7 +507,7 @@ Evaluated per station card, top row first (the first match wins). The connection
 5. **Reconnecting demo:** turn off Wi-Fi for 30 s. The banner appears; turn Wi-Fi back on and the page refetches and goes back to Fresh.
 
 ### 60-second version for class
-> "Every 15 seconds, Supabase Cron calls my Edge Function. It downloads all 8 MTA subway feeds, which are binary Protocol Buffers, decodes them, and turns about 16,000 predictions into about 990 platform 'boards': the next three trains of every line at each platform. It compares those boards with what's already in Postgres and writes only the ones that meaningfully changed: a train arriving, leaving, or swapping order, or an ETA moving 30 seconds or more. That's about a hundred and fifty rows per run instead of 16,000. Only one run can hold the lock at a time, and an old run can never overwrite a newer one. It then updates a one-row heartbeat and logs the run. Supabase Realtime pushes the changed boards, filtered to the stations a person is looking at, to the browser. The countdown ticks locally from absolute arrival times, so time passing costs nothing. You know it's current because the heartbeat updates every run, even when no train moved. If the heartbeat goes silent for a minute the page says Stale, and if the worker reports a failure it says Down. Each MTA feed's own timestamp is checked too, so if one feed freezes, only its lines say Partial. Follows belong to each user: RLS checks the Clerk user ID inside the database."
+> "Every 15 seconds, Supabase Cron calls my Edge Function. It downloads all 8 MTA subway feeds, which are binary Protocol Buffers, decodes them, and turns about 16,000 predictions into about 990 platform 'boards': the next three trains of every line at each platform. It compares those boards with what's already in Postgres and writes only the ones that meaningfully changed: a train arriving, leaving, or swapping order, or an ETA moving 30 seconds or more. That comparison happens inside Postgres, so stored data never leaves the database: about 300 of the 975 boards are written per run, not 16,000 rows, and the worker downloads almost nothing back. Only one run can hold the lock at a time, and an old run can never overwrite a newer one. It then updates a one-row heartbeat and logs the run. Supabase Realtime pushes the changed boards, filtered to the stations a person is looking at, to the browser. The countdown ticks locally from absolute arrival times, so time passing costs nothing. You know it's current because the heartbeat updates every run, even when no train moved. If the heartbeat goes silent for a minute the page says Stale, and if the worker reports a failure it says Down. Each MTA feed's own timestamp is checked too, so if one feed freezes, only its lines say Partial. Follows belong to each user: RLS checks the Clerk user ID inside the database."
 
 ---
 
@@ -461,3 +522,5 @@ Evaluated per station card, top row first (the first match wins). The connection
 8. **Separate heartbeat (`worker_status`) and execution log (`worker_runs`)**, written atomically by `commit_worker_run`.
 9. **Concurrency:** advisory-locked atomic claim, a partial unique index, fencing by `run_id`, and per-feed monotonic timestamps.
 10. **States:** Loading, Fresh, Stale, Down, Partial, and Reconnecting, computed from three independent signals (worker, feed, connection).
+11. **Board comparison inside PostgreSQL** (Step 4 prep amendment): `commit_worker_run` validates input, rejects stale/empty/format-changed feeds, carries over trains, diffs with `board_changed`, and writes boards, status, and log in one fenced transaction. The worker never reads boards. Egress drops from ~148 GB a month to ~45 MB.
+12. **Carried after 2 consecutive failures,** so one-run blips don't churn boards (78 vs 411 + 357 writes measured).

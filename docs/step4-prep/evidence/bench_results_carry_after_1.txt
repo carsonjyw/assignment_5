@@ -1,0 +1,20 @@
+PostgreSQL 18.6 (PGlite 0.5.11) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit
+BENCH (rolled back, carry_after=1):
+A initial fill                             run=1 ok      changed=975  carried=0    watched_changed=18 avg_row=840B commit=81.0ms reply=134B rejected_trains=0 feeds_rejected=[]
+B (+62 s after A)                          run=2 ok      changed=717  carried=0    watched_changed=15 avg_row=920B commit=94.0ms reply=134B rejected_trains=0 feeds_rejected=[]
+C (+264 s after B)                         run=3 ok      changed=922  carried=0    watched_changed=18 avg_row=858B commit=84.0ms reply=134B rejected_trains=0 feeds_rejected=[]
+D (live, +55 min)                          run=4 ok      changed=975  carried=0    watched_changed=18 avg_row=826B commit=79.0ms reply=134B rejected_trains=0 feeds_rejected=[]
+E (live, +15 s after D)                    run=5 ok      changed=302  carried=0    watched_changed=9  avg_row=1016B commit=83.0ms reply=134B rejected_trains=0 feeds_rejected=[]
+E +15 s, gtfs feed fails (1st run)         run=6 partial changed=411  carried=1512 watched_changed=13 avg_row=813B commit=71.0ms reply=146B rejected_trains=64 feeds_rejected=["gtfs"]
+E +30 s, gtfs feed fails (2nd run)         run=7 partial changed=153  carried=1499 watched_changed=5  avg_row=883B commit=67.0ms reply=147B rejected_trains=214 feeds_rejected=["gtfs"]
+E +45 s, gtfs recovers                     run=8 ok      changed=357  carried=0    watched_changed=8  avg_row=770B commit=76.0ms reply=136B rejected_trains=272 feeds_rejected=[]
+E +45 s, identical replay                  run=9 ok      changed=0    carried=0    watched_changed=0  avg_row=-B commit=76.0ms reply=134B rejected_trains=272 feeds_rejected=[]
+B replayed late (older MTA timestamps)     run=10 error   changed=975  carried=4103 watched_changed=18 avg_row=774B commit=56.0ms reply=227B rejected_trains=4456 feeds_rejected=["gtfs", "gtfs-g", "gtfs-l", "gtfs-jz", "gtfs-si", "gtfs-ace", "gtfs-bdfm", "gtfs-nqrw"]
+claim A=11 | overlapping claim=null
+stale run 10 commit -> superseded: run 10 is error
+bad feeds object -> invalid_input: feeds must contain exactly the 8 subway feeds
+all feeds "ok" but only invalid trains (route/feed mismatch, bad eta, unknown stop) -> status=error rejected_trains=1 feeds_empty=8 changed=228
+  -> boards empty=0 of 975, boards with only carried trains=975
+worker_runs rows=11 statuses={"ok": 7, "error": 2, "partial": 2}
+worker_status reply size=1230B
+total script 1573 ms
