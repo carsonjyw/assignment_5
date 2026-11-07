@@ -88,6 +88,8 @@ The full approved design, diagram, rationale, and the egress/write/Realtime benc
 - **Basemap:** `public/data/basemap.json`, built with `python3 -I scripts/build_basemap.py <download_dir> public/data/map.json public/data/basemap.json`. It uses the same projection as `map.json`, read from its `proj` block.
   - Sources: DCP borough boundaries (water excluded), NYC Parks properties, and DCP 2020 NTAs (label positions only), all from NYC Open Data, plus Census 2023 counties (1:500k) for NJ, Nassau and Westchester.
   - Water is "not land". Labels are computed from the real shorelines; nothing is hand-drawn.
+- **Streets:** `public/data/streets/` (58 tiles + `index.json`), built by `scripts/build_streets.py` from NYC Street Centerline (`inkn-q76z`) in the same projection. Fetched only in view, from zoom 4; names from zoom 9.
+- **Saved line choice:** `lib/headway/savedLines.ts`, per browser in localStorage. `follows` is unchanged: no schema or RLS change.
 - **Map:** `components/map/SubwayMap.tsx` is plain SVG with no tile service. Layers run geography → network (bundled by trunk colour, offsets in `lib/headway/mapLayout.ts`) → selection (line, journey, station).
   - Labels are placed per zoom step with collision avoidance and same-name suppression.
   - `MapContext` carries the selected route, focused station, journey and pick mode. `setPick` and `stationsById` must stay referentially stable, or the effects loop.

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLive } from "@/app/providers";
 import { cardRows, feedsFor, formatEta, groupStation, trainStatusText, type Platform, type Station, type Train } from "@/lib/headway/core";
 import { useStations } from "@/lib/headway/useStations";
+import { setSavedLines, useSavedLines } from "@/lib/headway/savedLines";
 import { useMap } from "./map/MapContext";
 import { RouteMark } from "./RouteMark";
 import { StationSearch } from "./StationSearch";
@@ -162,6 +163,7 @@ export function SavedPanel() {
           <Link href="/" className="press mt-3 inline-block font-bold underline">Find a station</Link>
         </div>
       ) : (
+        <>
         <ul className="mt-4 space-y-3">
           {ids.map((id, i) => (
             <li key={id} className="enter" style={{ animationDelay: `${i * 50}ms` }}>
@@ -169,6 +171,8 @@ export function SavedPanel() {
             </li>
           ))}
         </ul>
+        <p className="mt-3 text-xs text-muted">Tap line marks to show only those lines. Your saved stations follow your account; the line choice is remembered on this device.</p>
+        </>
       )}
     </div>
   );
@@ -177,18 +181,37 @@ export function SavedPanel() {
 function SavedCard({ station, platforms, boards, loaded }: { station?: Station; platforms: Platform[]; boards: Record<string, Train[]>; loaded: boolean }) {
   const { routes, nowMs } = useLive();
   const { setFocus } = useMap();
+  const id = station?.station_id ?? -1;
+  const only = useSavedLines(id);
   const groups = useMemo(() => groupStation(platforms, boards, routes, nowMs), [platforms, boards, routes, nowMs]);
-  const { rows, totalDirections } = cardRows(groups);
+  // Every direction, right here (no click-through needed). Fixed order, so rows don't jump as times change.
+  const rows = useMemo(() => cardRows(groups, Infinity, only).rows.sort((a, b) => a.stopId.localeCompare(b.stopId)), [groups, only]);
   const fresh = useFreshness(loaded && !!station, feedsFor(station?.routes ?? [], routes));
   if (!station || fresh.kind === "loading") return <Skeleton rows={2} />;
+  const lines = [...station.routes].sort((a, b) => (routes[a]?.sort_order ?? 99) - (routes[b]?.sort_order ?? 99));
+  const toggle = (r: string) => setSavedLines(id, only.includes(r) ? only.filter((x) => x !== r) : [...only, r]);
   return (
-    <Link href={`/station/${station.station_id}`} onMouseEnter={() => setFocus(station.station_id)} onMouseLeave={() => setFocus(null)}
-      className="press block overflow-hidden rounded-xl border-2 border-transparent hover:border-text">
-      <div className="bg-sign px-4 py-3 text-sign-text">
+    <div onMouseEnter={() => setFocus(id)} onMouseLeave={() => setFocus(null)} className="overflow-hidden rounded-xl border border-panel-rule">
+      <Link href={`/station/${id}`} className="press flex items-center justify-between gap-3 bg-sign px-4 py-3 text-sign-text">
         <h2 className="sign-type truncate text-xl">{station.name}</h2>
-        <div className="mt-1.5 flex flex-wrap gap-1">{station.routes.map((r) => <RouteMark key={r} route={routes[r]} routeId={r} size="xs" />)}</div>
-      </div>
+        <span className="flex-none text-sm font-bold underline underline-offset-4">Full board</span>
+      </Link>
       <div className="bg-panel px-4 pb-2 text-panel-text">
+        {lines.length > 1 && (
+          <div role="group" aria-label={`Lines to show for ${station.name}`} className="-mx-1 flex flex-wrap items-center gap-0.5 border-b border-panel-rule py-1.5">
+            <span className="label-caps mx-1 text-panel-muted">{only.length ? "Showing" : "All lines"}</span>
+            {lines.map((r) => {
+              const on = only.includes(r);
+              return (
+                <button key={r} type="button" onClick={() => toggle(r)} aria-pressed={on} aria-label={`${on ? "Stop showing" : "Show"} ${routes[r]?.short_name ?? r} trains`}
+                  className="press relative grid h-10 w-9 place-items-center rounded-md hover:bg-[var(--panel-rule)]">
+                  <RouteMark route={routes[r]} routeId={r} size="xs" />
+                  <span aria-hidden="true" className={`absolute inset-x-1.5 bottom-0.5 h-[3px] rounded-full bg-panel-text ${on ? "opacity-100" : "opacity-0"}`} />
+                </button>
+              );
+            })}
+          </div>
+        )}
         {fresh.kind === "down" ? <p className="py-3 text-sm font-semibold text-down">Live times aren&apos;t available right now.</p> : (
           <ul>
             {rows.map((r) => (
@@ -198,15 +221,28 @@ function SavedCard({ station, platforms, boards, loaded }: { station?: Station; 
                   <RouteMark route={routes[r.first.route_id]} routeId={r.first.route_id} muted={!r.first.live} />
                   <span className="tabular text-[26px] font-black leading-none">{formatEta(r.first.eta, nowMs)}</span>
                   <span className={`label-caps ${r.first.live ? "text-live" : "text-panel-muted"}`}>{trainStatusText(r.first)}</span>
-                  {r.then.length > 0 && <span className="ml-auto text-sm font-semibold text-panel-muted">then {r.then.map((t) => formatEta(t.eta, nowMs).replace(" min", "")).join(", ")}</span>}
+                  {r.then.length > 0 && (
+                    <span className="ml-auto flex items-center gap-1 text-sm font-semibold text-panel-muted">
+                      then
+                      {r.then.map((t) => (
+                        <span key={t.trip_id} className="tabular inline-flex items-center gap-0.5">
+                          <RouteMark route={routes[t.route_id]} routeId={t.route_id} size="xs" muted={!t.live} />
+                          {formatEta(t.eta, nowMs).replace(" min", "")}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}
-            {loaded && rows.length === 0 && <li className="py-3 text-sm text-panel-muted">No trains listed right now</li>}
+            {loaded && rows.length === 0 && (
+              <li className="py-3 text-sm text-panel-muted">
+                {only.length ? `No ${only.map((r) => routes[r]?.short_name ?? r).join(", ")} trains listed right now` : "No trains listed right now"}
+              </li>
+            )}
           </ul>
         )}
-        {totalDirections > rows.length && <p className="pb-1 text-sm font-bold underline underline-offset-4">See all {totalDirections} platforms</p>}
       </div>
-    </Link>
+    </div>
   );
 }

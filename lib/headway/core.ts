@@ -170,11 +170,14 @@ export function visibleTrains(trains: Train[], filter: string | null, expanded: 
 }
 
 /** Home card rows: one per direction with a train, soonest first, with the next two times. */
-export function cardRows(groups: LineGroup[], max = 4): {
+export function cardRows(groups: LineGroup[], max = 4, only: string[] = []): {
   rows: { stopId: string; heading: string; first: Train; then: Train[] }[];
   totalDirections: number;
 } {
-  const all = groups.flatMap((g) => g.directions).filter((d) => d.trains.length > 0);
+  // `only`: keep just these routes (a saved station's chosen lines); empty means every line
+  const all = groups.flatMap((g) => g.directions)
+    .map((d) => (only.length ? { ...d, trains: d.trains.filter((t) => only.includes(t.route_id)) } : d))
+    .filter((d) => d.trains.length > 0);
   all.sort((a, b) => a.trains[0].eta - b.trains[0].eta);
   return {
     rows: all.slice(0, max).map((d) => ({ stopId: d.stopId, heading: d.heading, first: d.trains[0], then: d.trains.slice(1, 3) })),

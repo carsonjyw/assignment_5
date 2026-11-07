@@ -118,3 +118,16 @@ test("freshness precedence: loading, fresh, partial, stale, down, reconnecting",
   assert.equal(rc.kind, "fresh");
   assert.equal(rc.reconnecting, true, "reconnecting is a banner on top of the data state");
 });
+
+test("saved cards: every direction, optionally only the chosen lines", () => {
+  const t = (route_id: string, eta: number) => ({ trip_id: `${route_id}${eta}`, route_id, eta, live: true, kind: "arr", headsign: "x", carried: false });
+  const groups = [
+    { directions: [{ stopId: "A1N", heading: "Uptown", trains: [t("C", 100), t("A", 200), t("E", 300)] }, { stopId: "A1S", heading: "Downtown", trains: [t("E", 150)] }] },
+    { directions: [{ stopId: "B1N", heading: "Uptown", trains: [t("1", 50)] }, { stopId: "B1S", heading: "Downtown", trains: [] }] },
+  ] as unknown as Parameters<typeof cardRows>[0];
+  assert.equal(cardRows(groups, Infinity).rows.length, 3, "every direction with trains, no cap");
+  const onlyA = cardRows(groups, Infinity, ["A"]).rows;
+  assert.deepEqual(onlyA.map((r) => r.stopId), ["A1N"]);
+  assert.equal(onlyA[0].first.route_id, "A", "the chosen line leads, not the soonest train overall");
+  assert.equal(cardRows(groups, Infinity, ["G"]).rows.length, 0);
+});

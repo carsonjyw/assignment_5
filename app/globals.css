@@ -18,6 +18,11 @@
   --shore: #b4c3ce;
   --line-dim: #e4e6e8;
   --casing: #ffffff;
+  --street: #dcd9d1;
+  --selected-dot: #0d0e10;
+  --selected-halo: #ffffff;
+  --plate-edge: transparent;
+  --station-link: #0d0e10;
   --station-fill: #ffffff;
   --station-ring: #0d0e10;
   --area-text: #5b636c;
@@ -58,6 +63,11 @@
   --shore: #2c3640;
   --line-dim: #2e3339;
   --casing: #0d0e10;
+  --street: #383c43;
+  --selected-dot: #ffffff;
+  --selected-halo: #0d0e10;
+  --plate-edge: #8a9098;
+  --station-link: #e8e8e6;
   --station-fill: #ffffff;
   --station-ring: #0d0e10;
   --area-text: #a3abb3;
@@ -86,6 +96,11 @@
     --shore: #2c3640;
     --line-dim: #2e3339;
     --casing: #0d0e10;
+  --street: #383c43;
+  --selected-dot: #ffffff;
+  --selected-halo: #0d0e10;
+  --plate-edge: #8a9098;
+  --station-link: #e8e8e6;
     --station-fill: #ffffff;
     --station-ring: #0d0e10;
     --area-text: #a3abb3;
@@ -166,6 +181,7 @@ body {
 .map-region { font-weight: 650; fill: var(--area-text); }
 .map-water { fill: var(--water-text); font-style: italic; font-weight: 600; }
 .map-park { fill: var(--park-text); font-weight: 650; }
+.map-street { font-weight: 500; }
 .press { transition: transform 120ms ease-out, background-color 150ms, border-color 150ms, color 150ms; }
 .press:active { transform: scale(0.97); }
 

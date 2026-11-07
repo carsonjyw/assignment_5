@@ -22,7 +22,8 @@ export const nameSize = (name: string) =>
 
 export function StationView({ stationId, initialRoute }: { stationId: number; initialRoute?: string | null }) {
   const { routes, nowMs } = useLive();
-  const { setFocus, setRoute, setJourney } = useMap();
+  const { setFocus, setRoute, setJourney, stationsById } = useMap();
+  const linked = stationsById.get(stationId)?.nodes.length ?? 0;
   const ids = useMemo(() => [stationId], [stationId]);
   const data = useStations(ids);
   const station = data.stations[stationId];
@@ -62,12 +63,14 @@ export function StationView({ stationId, initialRoute }: { stationId: number; in
       <header className="sign-band px-4 pb-3 pt-3.5 text-sign-text md:px-5 md:pb-3.5 md:pt-4">
         <div className="flex items-center justify-between gap-3">
           <Link href="/" className="label-caps -ml-1 rounded px-1 py-1 text-sign-muted hover:text-sign-text">← Explore</Link>
-          {station && <FollowButton stationId={stationId} stationName={station.name} />}
+          {station && <FollowButton stationId={stationId} stationName={station.name} line={filter} />}
         </div>
         <h1 className={`sign-type mt-1.5 leading-[1.06] ${station ? nameSize(name) : "text-[30px]"}`}>{station ? name : "Loading…"}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className="flex flex-wrap gap-1">{stationRoutes.map((r) => <RouteMark key={r} route={routes[r]} routeId={r} size={stationRoutes.length > 8 ? "xs" : "sm"} />)}</span>
-          {station && <span className="text-[13px] font-medium text-sign-muted">{BOROUGH[station.borough] ?? station.borough}</span>}
+          {station && <span className="text-[13px] font-medium text-sign-muted">
+            {BOROUGH[station.borough] ?? station.borough}{linked > 1 ? ` · ${linked} linked stops, walk between them` : ""}
+          </span>}
         </div>
         <p className="mt-2 flex items-center gap-1 text-[13px] font-semibold text-sign-muted md:mt-3">
           <span className="mr-1">Plan a trip</span>

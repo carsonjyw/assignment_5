@@ -5,11 +5,14 @@
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLive } from "@/app/providers";
+import { setSavedLines } from "@/lib/headway/savedLines";
 
 type Msg = { text: string; undo?: boolean } | null;
 
-export function FollowButton({ stationId, stationName }: { stationId: number; stationName: string }) {
-  const { supabase } = useLive();
+// `line`: the line this station page is filtered to. Saving then keeps just that line on the Saved card.
+export function FollowButton({ stationId, stationName, line = null }: { stationId: number; stationName: string; line?: string | null }) {
+  const { supabase, routes } = useLive();
+  const lineName = line ? routes[line]?.short_name ?? line : null;
   const { isLoaded, isSignedIn } = useAuth();
   const clerk = useClerk();
   const [followingState, setFollowing] = useState<boolean | null>(null);
@@ -43,8 +46,9 @@ export function FollowButton({ stationId, stationName }: { stationId: number; st
         : "Couldn't save. Try again." });
       return;
     }
-    setMsg({ text: `Saved ${stationName}` });
-  }, [supabase, stationId, stationName]);
+    if (line) setSavedLines(stationId, [line]);
+    setMsg({ text: lineName ? `Saved ${stationName}, ${lineName} only` : `Saved ${stationName}` });
+  }, [supabase, stationId, stationName, line, lineName]);
 
   const unfollow = useCallback(async () => {
     setBusy(true);
@@ -56,6 +60,7 @@ export function FollowButton({ stationId, stationName }: { stationId: number; st
       setMsg({ text: "Couldn't save. Try again." });
       return;
     }
+    setSavedLines(stationId, []);
     setMsg({ text: `Removed ${stationName} from Saved`, undo: true });
   }, [supabase, stationId, stationName]);
 
@@ -71,9 +76,10 @@ export function FollowButton({ stationId, stationName }: { stationId: number; st
     supabase.from("follows").insert({ station_id: stationId }).then(({ error }) => {
       const saved = !error || error.code === "23505";
       setFollowing(saved);
-      setMsg({ text: saved ? `Saved ${stationName}` : "Couldn't save. Try again." });
+      if (saved && line) setSavedLines(stationId, [line]);
+      setMsg({ text: saved ? (lineName ? `Saved ${stationName}, ${lineName} only` : `Saved ${stationName}`) : "Couldn't save. Try again." });
     });
-  }, [isSignedIn, following, supabase, stationId, stationName]);
+  }, [isSignedIn, following, supabase, stationId, stationName, line, lineName]);
 
   useEffect(() => {
     if (!msg) return;
@@ -83,7 +89,7 @@ export function FollowButton({ stationId, stationName }: { stationId: number; st
 
   const onClick = () => {
     if (!isSignedIn) {
-      void clerk.openSignIn({ forceRedirectUrl: `/station/${stationId}?follow=1` });
+      void clerk.openSignIn({ forceRedirectUrl: `/station/${stationId}?follow=1${line ? `&line=${encodeURIComponent(line)}` : ""}` });
       return;
     }
     if (following) void unfollow();
@@ -106,7 +112,7 @@ export function FollowButton({ stationId, stationName }: { stationId: number; st
       >
         {/* key restarts the pop each time the state flips */}
         <span key={String(following)} className={following ? "pop text-[#ffd166]" : undefined} aria-hidden="true">{following ? "★" : "☆"}</span>
-        {following ? "Saved" : "Save"}
+        {following ? "Saved" : lineName ? `Save ${lineName} only` : "Save"}
       </button>
       {signedOut && <span id={`save-hint-${stationId}`} className="sr-only">Sign in to save this station</span>}
       {/* messages float under the button, so they never push the arrivals down */}

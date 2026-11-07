@@ -26,6 +26,8 @@ Every feature below is implemented and in the deployed app.
   - Drag, wheel, pinch, keyboard and +/− controls.
   - Track geometry from MTA's static data, drawn as one connected network with parallel lines bundled by trunk colour.
   - NYC land, rivers, parks, borough names, neighbourhood names and water labels, in the same projection.
+  - The real street grid appears when you zoom in, with street names at block level, so you can find where you are.
+  - A station complex shows its separate stops joined by a thin link, explained by a key on the map.
   - Labels thin out by zoom level without overlapping.
   - Selecting a line or a trip dims everything else.
 - **Real-time arrival predictions.** All 8 MTA GTFS-Realtime feeds, refreshed every 15 seconds. Arrivals show `LIVE` or `SCHEDULED`, the destination, the clock time, and a countdown.
@@ -35,7 +37,7 @@ Every feature below is implemented and in the deployed app.
   - The result lists the lines, direction, "toward" destination, boarding station, number of stops, each transfer, and a scheduled duration.
   - The live next trains are shown at each boarding station, and the route is drawn on the map.
   - A "fewer transfers" alternative appears when it is really different.
-- **User-specific saved stations.** Save and unsave from any station, up to 12 per person. Other users never see your list.
+- **User-specific saved stations.** Save and unsave from any station, up to 12 per person. Other users never see your list. Saved cards show every direction, and you can narrow a card to the lines you ride. Filtering a station to one line first offers "Save A only". The line choice is remembered on that device; the saved stations themselves follow your account.
 - **Authentication.** Clerk sign-in and sign-up. The signed-in session is what Supabase uses to enforce who can read and write what.
 - **Supabase Realtime updates without refreshing.** An open station page receives only the changed rows for its own stations, plus a system heartbeat.
 - **Freshness and failure states.** Loading, Live, Delayed (stale), Offline (down), partial (one line's feed is behind), and Reconnecting. See [UX states](#browser-states).
@@ -241,7 +243,16 @@ Not measured: the delay from the database write to the pixels changing in a spec
 
 ## Real user testing
 
-A classmate tested the deployed HEADWAY application. Their feedback was: **"works well"**.
+A classmate tested the deployed HEADWAY application. Their first feedback was: **"works well"**. A recorded walkthrough then gave more detail.
+
+They liked being able to explore without logging in, and said the app was intuitive and the design excellent. These are their requests and what changed:
+
+| Feedback | Change |
+|---|---|
+| Can't see the street grid to find where they live | Real streets appear when zoomed in, with names at block level |
+| The Times Sq "pathway" shape was confusing | Stops are separate circles joined by a thin link, with a key on the map and a note on the station page |
+| Why is a username required after Google sign-in? | Clerk no longer requires a username at sign-up |
+| Saved cards hide trains until you click in, and can't save just one line (the A at 50 St) | Cards show every direction, can be narrowed to chosen lines, and a filtered station offers "Save A only" |
 
 ## Testing and verification
 
@@ -306,6 +317,7 @@ Static map and planner data are regenerated from MTA's GTFS:
 ```bash
 python3 -I scripts/build_transit_assets.py <gtfs_subway_dir> <Stations.csv> public/data
 python3 -I scripts/build_basemap.py <download_dir> public/data/map.json public/data/basemap.json
+python3 -I scripts/build_streets.py public/data/map.json public/data/streets <centerline_page.json> [...]
 ```
 
 ## Limitations and future improvements
@@ -324,6 +336,7 @@ HEADWAY is **not an official MTA app or map**. It uses its own route marks and d
 
 - **MTA:** real-time and static GTFS (free to use; no implied endorsement).
 - **NYC Open Data:** Borough Boundaries and 2020 Neighborhood Tabulation Areas (Department of City Planning); Parks Properties (Department of Parks and Recreation).
+- **NYC Open Data (streets):** Street Centerline (Office of Technology and Innovation).
 - **US Census Bureau:** 2023 Cartographic Boundary counties (public domain).
 
 HEADWAY is a separate project from FERA and shares no code, database or configuration with it.

@@ -1,7 +1,8 @@
 "use client";
 
 // Interactive network map in one projection (public/data/map.json + basemap.json):
-//   1. geography: land, water (everything that isn't land), parks, and area labels (NYC Open Data, Census)
+//   1. geography: land, water (everything that isn't land), parks, area labels (NYC Open Data, Census),
+//      and, once zoomed in, the real street grid (NYC Street Centerline, loaded tile by tile)
 //   2. network: one segment per pair of adjacent stations from MTA GTFS, routes bundled side by side by
 //      trunk colour, interchanges joined by connectors drawn between their real station positions
 //   3. selection: highlighted line, planned journey, focused station (always on top, strongest emphasis)
@@ -10,16 +11,33 @@
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLive } from "@/app/providers";
-import { lineWidth, offsetLine, placeLabels, points, zoomBucket, type LabelCandidate, type PlacedLabel } from "@/lib/headway/mapLayout";
+import { lineWidth, offsetLine, placeLabels, points, visibleTiles, zoomBucket, type LabelCandidate, type PlacedLabel } from "@/lib/headway/mapLayout";
 import type { Journey } from "@/lib/headway/planner";
 import { inkFor } from "../RouteMark";
 import { useMap, type BaseData, type MapData, type MapStation } from "./MapContext";
 
 interface View { k: number; x: number; y: number; auto?: { w: number; h: number } } // screen = world * k + (x, y); auto = untouched overview
-const MIN_K = 0.45, MAX_K = 16;
+const MIN_K = 0.45, MAX_K = 24;
 const clampK = (k: number) => Math.min(MAX_K, Math.max(MIN_K, k));
 // Default framing: Manhattan, the Bronx line to 149 St, western Queens and Brooklyn to Prospect Park
 const HOME = { lon0: -74.035, lon1: -73.87, lat0: 40.66, lat1: 40.83 };
+
+// Street grid: context only, so a failed download simply leaves it out
+const STREET_K = 4; // blocks are big enough to read from here
+const STREET_NAMES_K = 9;
+interface StreetIndex { size: number; tiles: string[] }
+interface StreetTile { d: string; n: [string, number, number, number][] }
+let streetIndex: Promise<StreetIndex | null> | null = null;
+const loadStreetIndex = () => (streetIndex ??= fetch("/data/streets/index.json").then((r) => (r.ok ? r.json() : null)).catch(() => null));
+const tileCache = new Map<string, Promise<StreetTile | null>>();
+function loadTile(key: string) {
+  let p = tileCache.get(key);
+  if (!p) {
+    p = fetch(`/data/streets/${key}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<StreetTile | null>;
+    tileCache.set(key, p);
+  }
+  return p;
+}
 
 function reducedMotion() {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -129,6 +147,11 @@ const BaseLayer = memo(function BaseLayer({ base }: { base: BaseData }) {
   );
 });
 
+// World-unit stroke (not non-scaling): these paths are large, and this keeps panning smooth
+const StreetLayer = memo(function StreetLayer({ d, width }: { d: string; width: number }) {
+  return <path d={d} fill="none" stroke="var(--street)" strokeWidth={width} strokeLinecap="round" aria-hidden="true" />;
+});
+
 const NetworkLayer = memo(function NetworkLayer({ data, kb, dim }: { data: MapData; kb: number; dim: boolean }) {
   const w = lineWidth(kb);
   const gap = (w * 1.1) / kb; // world units between bundled lines
@@ -180,20 +203,20 @@ const StationLayer = memo(function StationLayer({ data, net, kb, active }: { dat
         if (!showLocal && !(major || active?.has(s.id))) return null;
         const faded = active != null && !active.has(s.id);
         const nodes = s.nodes.length ? s.nodes : [[s.x, s.y] as [number, number]];
-        const bundle = Math.max(1, ...nodes.map(([x, y]) => net.nodeBundle.get(`${x},${y}`) ?? 1));
-        const r = ix ? Math.max(3.6, (bundle * w * 1.1) / 2 + 1.6) : Math.max(1.8, w * 0.62 + (bundle - 1) * w * 0.55);
+        const radius = ([x, y]: number[]) => {
+          const bundle = net.nodeBundle.get(`${x},${y}`) ?? 1;
+          return ix ? Math.max(3.6, (bundle * w * 1.1) / 2 + 1.6) : Math.max(1.8, w * 0.62 + (bundle - 1) * w * 0.55);
+        };
         const ring = ix ? 1.9 : 1.2;
         return (
           <g key={s.id} opacity={faded ? 0.4 : 1}>
+            {/* a complex's stations stay separate circles at their real positions, joined by a thin link */}
             {nodes.length > 1 && (
-              <>
-                <path d={links(net.connectors.get(s.id)!)} fill="none" stroke="var(--station-ring)" strokeWidth={(r + ring) * 2} vectorEffect="non-scaling-stroke" strokeLinecap="round" />
-                <path d={links(net.connectors.get(s.id)!)} fill="none" stroke="var(--station-fill)" strokeWidth={r * 2 - ring * 0.6} vectorEffect="non-scaling-stroke" strokeLinecap="round" />
-              </>
+              <path d={links(net.connectors.get(s.id)!)} fill="none" stroke="var(--station-link)" strokeWidth={Math.max(2.4, w * 0.75)} vectorEffect="non-scaling-stroke" strokeLinecap="round" />
             )}
-            {nodes.length === 1 && (
-              <circle cx={nodes[0][0]} cy={nodes[0][1]} r={r / kb} fill="var(--station-fill)" stroke="var(--station-ring)" strokeWidth={ring} vectorEffect="non-scaling-stroke" />
-            )}
+            {nodes.map((n, i) => (
+              <circle key={i} cx={n[0]} cy={n[1]} r={radius(n) / kb} fill="var(--station-fill)" stroke="var(--station-ring)" strokeWidth={ring} vectorEffect="non-scaling-stroke" />
+            ))}
           </g>
         );
       })}
@@ -383,6 +406,29 @@ export function SubwayMap() {
   const v = view ?? { k: 1, x: 0, y: 0 };
   const kb = zoomBucket(v.k);
 
+  // ---- street grid: fetch only the tiles in view, only once zoomed in
+  const [streetIdx, setStreetIdx] = useState<(StreetIndex & { set: Set<string> }) | null>(null);
+  const [tiles, setTiles] = useState<Record<string, StreetTile>>({});
+  const wantStreets = v.k >= STREET_K;
+  useEffect(() => {
+    if (!wantStreets || streetIdx) return;
+    void loadStreetIndex().then((i) => {
+      if (i) setStreetIdx({ ...i, set: new Set(i.tiles) });
+    });
+  }, [wantStreets, streetIdx]);
+  const visibleKey = wantStreets && streetIdx ? visibleTiles(v, size.w, size.h, streetIdx.size, streetIdx.set).join(",") : "";
+  useEffect(() => {
+    for (const key of visibleKey ? visibleKey.split(",") : []) {
+      void loadTile(key).then((t) => {
+        if (t) setTiles((p) => (p[key] ? p : { ...p, [key]: t }));
+      });
+    }
+  }, [visibleKey]);
+  const streetNames = useMemo(() => {
+    if (kb < STREET_NAMES_K || !visibleKey) return [];
+    return visibleKey.split(",").flatMap((key) => (tiles[key]?.n ?? []).map((n, i) => ({ key: `bs${key}-${i}`, t: n[0], x: n[1], y: n[2], r: n[3] })));
+  }, [kb, visibleKey, tiles]);
+
   // ---- what's selected
   const routeIdx = route && net ? net.routeIndex.get(route) ?? null : null;
   const legs = useMemo(
@@ -397,8 +443,8 @@ export function SubwayMap() {
 
   // ---- labels: stations first (by importance), then area labels where there's room
   const labels = useMemo(
-    () => (data && net ? layoutLabels(data, net, base, kb, focus, journey, active) : []),
-    [data, net, base, kb, focus, journey, active],
+    () => (data && net ? layoutLabels(data, net, base, kb, focus, journey, active, streetNames) : []),
+    [data, net, base, kb, focus, journey, active, streetNames],
   );
 
   if (!data || !net) {
@@ -429,6 +475,11 @@ export function SubwayMap() {
       <svg width={size.w} height={size.h} className="block">
         <g transform={`translate(${v.x},${v.y}) scale(${v.k})`}>
           {base && <BaseLayer base={base} />}
+          {visibleKey && (
+            <g opacity={Math.min(1, 0.35 + (v.k - STREET_K) / 1.5)}>
+              {visibleKey.split(",").map((key) => tiles[key] && <StreetLayer key={key} d={tiles[key].d} width={(kb < 8 ? 1 : kb < 14 ? 1.7 : 2.6) / kb} />)}
+            </g>
+          )}
           <AreaLabels labels={labels} k={v.k} />
           <NetworkLayer data={data} kb={kb} dim={active != null} />
           {routeIdx != null && !journey && <RouteLayer key={route} data={data} kb={kb} routeIdx={routeIdx} color={color(route!)} />}
@@ -438,8 +489,8 @@ export function SubwayMap() {
             const s = stationsById.get(id);
             return s && (
               <g key={`e${id}`}>
-                <circle cx={s.x} cy={s.y} r={7.5 / v.k} fill="var(--station-ring)" stroke="var(--casing)" strokeWidth={2.5 / v.k} />
-                <circle cx={s.x} cy={s.y} r={16 / v.k} fill="none" stroke="var(--station-ring)" strokeWidth={2.5 / v.k} className="map-ping" />
+                <circle cx={s.x} cy={s.y} r={7.5 / v.k} fill="var(--selected-dot)" stroke="var(--selected-halo)" strokeWidth={2.5 / v.k} />
+                <circle cx={s.x} cy={s.y} r={16 / v.k} fill="none" stroke="var(--selected-dot)" strokeWidth={2.5 / v.k} className="map-ping" />
               </g>
             );
           })}
@@ -448,7 +499,7 @@ export function SubwayMap() {
           {data.stations.map((s) => (
             <circle key={`h${s.id}`} cx={s.x} cy={s.y} r={Math.max(12 / v.k, s.nodes.length > 1 ? spread(s) : 0)} fill="transparent"
               onClick={() => select(s)} className="cursor-pointer">
-              <title>{s.name}</title>
+              <title>{s.nodes.length > 1 ? `${s.name}: ${s.nodes.length} linked stops, one station complex` : s.name}</title>
             </circle>
           ))}
         </g>
@@ -466,15 +517,28 @@ export function SubwayMap() {
           Tap a station on the map
         </p>
       )}
-      {route && !journey && routes[route] && (
-        <p className="enter pointer-events-none absolute bottom-7 left-3 rounded-lg px-3 py-1.5 text-sm font-extrabold shadow-md"
-          style={{ background: color(route), color: inkFor(routes[route].color) }}>
-          {routes[route].short_name === "S" ? routes[route].long_name : `${routes[route].short_name} line`}
-        </p>
-      )}
-      <p title="Not an official MTA map. Subway lines and stations: MTA static GTFS. Land, water and parks: NYC Department of City Planning and NYC Parks (NYC Open Data), US Census Bureau."
+      <div className="pointer-events-none absolute bottom-7 left-3 flex flex-col items-start gap-1.5">
+        {route && !journey && routes[route] && (
+          <p className="enter rounded-lg px-3 py-1.5 text-sm font-extrabold shadow-md"
+            style={{ background: color(route), color: inkFor(routes[route].color) }}>
+            {routes[route].short_name === "S" ? routes[route].long_name : `${routes[route].short_name} line`}
+          </p>
+        )}
+        {/* the linked circles need a word of explanation, but only once they're big enough to notice */}
+        {v.k >= 3 && (
+          <p className="hidden items-center gap-2 rounded-lg bg-bg/95 px-2.5 py-1.5 text-xs font-semibold text-text shadow-sm sm:flex">
+            <svg width="30" height="12" viewBox="0 0 30 12" aria-hidden="true">
+              <line x1="6" y1="6" x2="24" y2="6" stroke="currentColor" strokeWidth="2.4" />
+              <circle cx="6" cy="6" r="4" fill="#fff" stroke="#0d0e10" strokeWidth="1.9" />
+              <circle cx="24" cy="6" r="4" fill="#fff" stroke="#0d0e10" strokeWidth="1.9" />
+            </svg>
+            Linked stops: one station, walk between platforms
+          </p>
+        )}
+      </div>
+      <p title="Not an official MTA map. Subway lines and stations: MTA static GTFS. Land, water and parks: NYC Department of City Planning and NYC Parks (NYC Open Data), US Census Bureau. Streets: NYC Street Centerline, NYC Office of Technology and Innovation (NYC Open Data)."
         className="absolute bottom-0 right-0 max-w-full truncate rounded-tl-md bg-bg/90 px-2 py-0.5 text-[10.5px] font-medium text-muted">
-        Not an official MTA map · Lines: MTA GTFS · Land &amp; parks: NYC Open Data, US Census
+        Not an official MTA map · Lines: MTA GTFS · Land, parks &amp; streets: NYC Open Data, US Census
       </p>
     </div>
   );
@@ -488,7 +552,8 @@ const links = (d: number[]) => {
 const spread = (s: MapStation) => Math.max(...s.nodes.map(([x, y]) => Math.hypot(x - s.x, y - s.y))) + 2;
 
 // ------------------------------------------------------------------ labels
-function layoutLabels(data: MapData, net: Network, base: BaseData | null, kb: number, focus: number | null, journey: Journey | null, active: Set<number> | null): PlacedLabel[] {
+function layoutLabels(data: MapData, net: Network, base: BaseData | null, kb: number, focus: number | null, journey: Journey | null, active: Set<number> | null,
+  streetNames: { key: string; t: string; x: number; y: number; r: number }[]): PlacedLabel[] {
   const w = lineWidth(kb);
   const cands: LabelCandidate[] = [];
   const journeyKey = new Set<number>(journey ? [journey.legs[0].boardStation, ...journey.legs.map((l) => l.alightStation)] : []);
@@ -526,6 +591,8 @@ function layoutLabels(data: MapData, net: Network, base: BaseData | null, kb: nu
       });
     }
   }
+  // street names last and quietest: they only fill the space that's left
+  for (const n of streetNames) cands.push({ key: n.key, text: n.t, x: n.x, y: n.y, fs: 10.5, pad: 0, rotate: n.r, fixed: true, priority: 10_004 });
   return placeLabels(cands, kb, kb >= 9 ? 0 : 150);
 }
 
@@ -533,11 +600,11 @@ const AreaLabels = memo(function AreaLabels({ labels, k }: { labels: PlacedLabel
   return (
     <g aria-hidden="true" className="pointer-events-none">
       {labels.filter((l) => l.key.startsWith("b")).map((l) => {
-        const kind = l.c.caps ? (l.c.fs >= 13 ? "borough" : "region") : l.c.priority === 10_001 ? "water" : l.c.priority === 10_003 ? "park" : "hood";
+        const kind = l.c.caps ? (l.c.fs >= 13 ? "borough" : "region") : l.c.priority === 10_001 ? "water" : l.c.priority === 10_003 ? "park" : l.c.priority === 10_004 ? "street" : "hood";
         return (
           <text key={l.key} x={l.x} y={l.y} dy={(l.c.fs * 0.35) / k} textAnchor="middle" fontSize={l.c.fs / k}
             transform={l.c.rotate ? `rotate(${l.c.rotate} ${l.x} ${l.y})` : undefined}
-            className={`map-area map-${kind}`} style={{ letterSpacing: l.c.caps ? `${0.2 * (l.c.fs / k)}px` : undefined }}>
+            className={`map-area map-${kind}`} style={{ letterSpacing: l.c.caps ? `${0.2 * (l.c.fs / k)}px` : undefined, strokeWidth: kind === "street" ? 2.5 / k : undefined }}>
             {l.text}
           </text>
         );
@@ -559,7 +626,7 @@ function StationLabels({ labels, k, ends }: { labels: PlacedLabel[]; k: number; 
           const left = l.anchor === "start" ? x - 7 / k : l.anchor === "end" ? x - wpx / k + 7 / k : x - wpx / 2 / k;
           return (
             <g key={l.key} className="enter">
-              <rect x={left} y={y - fs * 1.05} width={wpx / k} height={fs * 1.5} rx={4 / k} fill="var(--sign)" />
+              <rect x={left} y={y - fs * 1.05} width={wpx / k} height={fs * 1.5} rx={4 / k} fill="var(--sign)" stroke="var(--plate-edge)" strokeWidth={1 / k} />
               <text x={left + 7 / k} y={y} fontSize={fs} fontWeight={800} fill="var(--sign-text)">{l.text}</text>
             </g>
           );

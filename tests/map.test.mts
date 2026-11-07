@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { offsetLine, placeLabels, textWidth, type LabelCandidate } from "../lib/headway/mapLayout.ts";
+import { offsetLine, placeLabels, textWidth, visibleTiles, type LabelCandidate } from "../lib/headway/mapLayout.ts";
 
 const map = JSON.parse(readFileSync(new URL("../public/data/map.json", import.meta.url), "utf8"));
 const base = JSON.parse(readFileSync(new URL("../public/data/basemap.json", import.meta.url), "utf8"));
@@ -127,4 +127,20 @@ test("labels never overlap, important ones always win, nearby duplicates are dro
     const [a, b] = [box(placed[i]), box(placed[j])];
     assert.ok(!(a[0] < b[2] - 1 && a[2] > b[0] + 1 && a[1] < b[3] - 1 && a[3] > b[1] + 1), `${placed[i].key} and ${placed[j].key} overlap`);
   }
+});
+
+test("street tiles: real streets, same projection, loaded by what's in view", () => {
+  const index = JSON.parse(readFileSync(new URL("../public/data/streets/index.json", import.meta.url), "utf8"));
+  const ts = station(611);
+  const key = `${Math.floor(ts.x / index.size)}_${Math.floor(ts.y / index.size)}`;
+  assert.ok(index.tiles.includes(key), "Times Sq's tile exists");
+  const tile = JSON.parse(readFileSync(new URL(`../public/data/streets/${key}.json`, import.meta.url), "utf8"));
+  const w42 = tile.n.filter((n: unknown[]) => n[0] === "W 42 St");
+  assert.ok(w42.length > 0, "West 42nd Street is in the Times Sq tile");
+  assert.ok(w42.every((n: number[]) => inside(borough("Manhattan"), [n[1], n[2]])), "and sits in Manhattan on the same projection");
+  assert.ok(w42.some((n: number[]) => Math.hypot(n[1] - ts.x, n[2] - ts.y) < 40), "near Times Sq");
+  const set = new Set<string>(index.tiles);
+  const k = 5, view = { k, x: 300 - ts.x * k, y: 300 - ts.y * k };
+  assert.ok(visibleTiles(view, 600, 600, index.size, set).includes(key), "the tile under the view loads");
+  assert.deepEqual(visibleTiles({ k: 5, x: 1e6, y: 1e6 }, 600, 600, index.size, set), [], "nothing loads off the map");
 });

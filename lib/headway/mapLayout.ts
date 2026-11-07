@@ -96,3 +96,17 @@ export const zoomBucket = (k: number) => Math.pow(1.2, Math.round(Math.log(k) / 
 
 /** Line width in screen px: thin when zoomed out, fuller when zoomed in. */
 export const lineWidth = (k: number) => Math.min(6, Math.max(2, 2.1 * Math.pow(k, 0.42)));
+
+/** Street tiles touching the current view (tile keys are "col_row" in map units; `pad` covers lines that cross a tile edge). */
+export function visibleTiles(view: { k: number; x: number; y: number }, w: number, h: number, size: number, available: Set<string>, pad = 20): string[] {
+  const x0 = (-view.x) / view.k - pad, x1 = (w - view.x) / view.k + pad;
+  const y0 = (-view.y) / view.k - pad, y1 = (h - view.y) / view.k + pad;
+  const out: string[] = [];
+  for (let c = Math.floor(x0 / size); c <= Math.floor(x1 / size); c++) {
+    for (let r = Math.floor(y0 / size); r <= Math.floor(y1 / size); r++) {
+      const key = `${c}_${r}`;
+      if (available.has(key)) out.push(key);
+    }
+  }
+  return out;
+}
