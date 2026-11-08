@@ -13,7 +13,7 @@ export function inkFor(hex: string): "#000000" | "#ffffff" {
   return (L + 0.05) / 0.05 >= 1.05 / (L + 0.05) ? "#000000" : "#ffffff";
 }
 
-const SIZES = { xs: "h-5 min-w-5 text-[11px] rounded-[5px]", sm: "h-6 min-w-6 text-[13px] rounded-[6px]", md: "h-8 min-w-8 text-base rounded-[8px]", lg: "h-10 min-w-10 text-xl rounded-[10px]" };
+const SIZES = { "3xs": "h-[15px] min-w-[15px] text-[9.5px] rounded-[3.5px]", "2xs": "h-[17px] min-w-[17px] text-[10px] rounded-[4px]", xs: "h-5 min-w-5 text-[11px] rounded-[5px]", sm: "h-6 min-w-6 text-[13px] rounded-[6px]", md: "h-8 min-w-8 text-base rounded-[8px]", lg: "h-10 min-w-10 text-xl rounded-[10px]" };
 
 export function RouteMark({ route, routeId, size = "md", muted = false }: {
   route?: Route; routeId: string; size?: keyof typeof SIZES; muted?: boolean;

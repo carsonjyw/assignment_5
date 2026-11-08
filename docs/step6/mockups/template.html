@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transfer Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root, .light {
+    --bg:#f6f5f1; --bg2:#ebeae5; --text:#0d0e10; --muted:#4a4d52; --rule:#d6d6d2; --panel:#fff; --panel-rule:#e2e2de;
+    --water:#cbd9e3; --land:#fbfaf8; --land2:#ebe8e1; --park:#d6e6cc; --shore:#b4c3ce; --street:#eeece7;
+    --area:#5b636c; --water-text:#2c5674; --park-text:#2e6338;
+    --ring:#0d0e10; --fill:#fff; --sel:#0d0e10; --halo:#fff; --plate-edge:transparent;
+    --grey-link:#8b9098; --grey-walk:#7d8289; --tint:rgba(112,98,226,.13);
+    --ink:#0d0e10; --quiet:#a4a8ad; --chip-bg:#0d0e10; --chip-text:#fff;
+  }
+  .dark {
+    --bg:#0d0e10; --bg2:#17191c; --text:#f4f4f2; --muted:#b9bcc0; --rule:#2b2e33; --panel:#17191c; --panel-rule:#2b2e33;
+    --water:#0c151c; --land:#1b1e22; --land2:#15171a; --park:#1b2a20; --shore:#2c3640; --street:#383c43;
+    --area:#a3abb3; --water-text:#84abc7; --park-text:#8fc39b;
+    --ring:#0d0e10; --fill:#fff; --sel:#fff; --halo:#0d0e10; --plate-edge:#8a9098;
+    --grey-link:#979da4; --grey-walk:#b0b6bd; --tint:rgba(150,138,255,.2);
+    --ink:#f4f4f2; --quiet:#6f757c; --chip-bg:#f4f4f2; --chip-text:#0d0e10;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 500 15px/1.45 "Inter Tight", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .sheet { background: var(--bg); color: var(--text); min-height: 100vh; }
+  header { background: #0d0e10; color: #fff; padding: 18px 20px 16px; background-image: linear-gradient(#fff,#fff); background-size: 100% 1px; background-position: 0 5px; background-repeat: no-repeat; }
+  h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -.015em; }
+  header p { margin: 3px 0 0; color: #c7c9cc; font-size: 14px; max-width: 70ch; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; }
+  .group { display: flex; align-items: center; gap: 2px; background: rgba(255,255,255,.12); border-radius: 8px; padding: 2px; }
+  .group span { font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: #c7c9cc; padding: 0 8px; }
+  .group button { all: unset; cursor: pointer; padding: 6px 10px; min-height: 22px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #c7c9cc; }
+  .group button[aria-pressed="true"] { background: #fff; color: #0d0e10; }
+  .group button:focus-visible { outline: 3px solid #8fb0ff; outline-offset: 1px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 470px), 1fr)); gap: 14px; padding: 14px; max-width: 1500px; margin: 0 auto; }
+  article { background: var(--panel); border: 1px solid var(--panel-rule); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .title { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px 9px; }
+  .title b { font-size: 11px; font-weight: 800; color: var(--muted); }
+  .title h2 { margin: 0; font-size: 17px; font-weight: 800; }
+  .tag { margin-left: auto; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; background: #d9f2e3; color: #0b5a31; border-radius: 5px; padding: 2px 7px; }
+  .map { height: 400px; background: var(--water); overflow: hidden; }
+  .map svg { display: block; width: 100%; height: 100%; }
+  .info { padding: 10px 14px 13px; font-size: 14px; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+  .key span { display: inline-flex; align-items: center; gap: 7px; }
+  .info p { margin: 4px 0 0; }
+  .info em { font-style: normal; font-weight: 800; }
+  footer { padding: 0 20px 24px; font-size: 13px; color: var(--muted); max-width: 90ch; }
+  @media (max-width: 600px) { .map { height: 320px; } }
+</style>
+</head>
+<body>
+<div class="sheet light" id="sheet">
+  <header>
+    <h1>Transfer design options</h1>
+    <p>The same real MTA stops, tracks and transfer times, drawn four ways. Change the controls and every map updates together.</p>
+    <div class="controls" id="controls"></div>
+  </header>
+  <main id="grid"></main>
+  <footer>Static comparison, not the live app. Stop positions and transfer times come from MTA GTFS; streets and land from NYC Open Data and the US Census. All connectors are schematic: MTA doesn't publish where passages run. Not an official MTA map.</footer>
+</div>
+<script>
+const D = /*DATA*/null;
+const state = { theme: "light", zoom: "street", station: 611, selected: "yes" };
+const K = { city: 1.7, neighbourhood: 5, street: 14 };
+const STATIONS = [[611, "Times Sq"], [602, "Union Sq"], [628, "Fulton St"], [613, "Lexington Av/59 St"]];
+const lineWidth = (k) => Math.min(7, Math.max(2, 2.1 * Math.pow(k, 0.45)));
+const byId = new Map(D.stations.map((s) => [s.id, s]));
+const complexes = new Map(D.complexes.map((c) => [c.id, c]));
+const routeColour = new Map();
+D.segs.forEach((s) => s.r.forEach((r) => { if (!routeColour.has(D.routes[r])) routeColour.set(D.routes[r], s.c[0]); }));
+const interchange = new Set(D.stations.filter((s) => s.nodes.length > 1 || new Set(s.r.map((r) => routeColour.get(r))).size > 1).map((s) => s.id));
+const nodeInfo = new Map();
+D.segs.forEach((s) => {
+  const d = s.d, n = d.length;
+  const note = (x, y, dx, dy) => {
+    const key = x + "," + y, L = Math.hypot(dx, dy) || 1, cur = nodeInfo.get(key);
+    if (!cur || s.c.length > cur.n) nodeInfo.set(key, { n: s.c.length, tx: dx / L, ty: dy / L });
+  };
+  note(d[0], d[1], d[2] - d[0], d[3] - d[1]);
+  note(d[n - 2], d[n - 1], d[n - 2] - d[n - 4], d[n - 1] - d[n - 3]);
+});
+
+function offsetLine(d, off) {
+  if (!off) return d;
+  const n = d.length / 2, out = new Array(d.length);
+  const norm = (i, j) => { const dx = d[2 * j] - d[2 * i], dy = d[2 * j + 1] - d[2 * i + 1], L = Math.hypot(dx, dy) || 1; return [-dy / L, dx / L]; };
+  for (let i = 0; i < n; i++) {
+    const a = i > 0 ? norm(i - 1, i) : null, b = i < n - 1 ? norm(i, i + 1) : null;
+    let nx = (a ? a[0] : 0) + (b ? b[0] : 0), ny = (a ? a[1] : 0) + (b ? b[1] : 0);
+    const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L;
+    const cos = a ? nx * a[0] + ny * a[1] : 1, sc = 1 / Math.max(0.55, cos);
+    out[2 * i] = d[2 * i] + nx * off * sc; out[2 * i + 1] = d[2 * i + 1] + ny * off * sc;
+  }
+  return out;
+}
+const pts = (d) => { let s = ""; for (let i = 0; i < d.length; i += 2) s += (i ? " " : "") + d[i].toFixed(2) + "," + d[i + 1].toFixed(2); return s; };
+const NS = 'vector-effect="non-scaling-stroke"';
+const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function curve(ax, ay, bx, by, amount = 0.22) {
+  const flip = ax > bx || (ax === bx && ay > by), dx = bx - ax, dy = by - ay, b = (flip ? -1 : 1) * amount;
+  return `M${ax},${ay}Q${(ax + bx) / 2 - dy * b},${(ay + by) / 2 + dx * b} ${bx},${by}`;
+}
+const straight = (ax, ay, bx, by) => `M${ax},${ay}L${bx},${by}`;
+const links = (c, f) => c.links.map(([i, j]) => f(c.stops[i].x, c.stops[i].y, c.stops[j].x, c.stops[j].y)).join("");
+const walksHere = (id) => D.walks.filter((w) => w.a === id || w.b === id);
+const timeOf = (c, i, j) => { const t = c.t.find(([a, b]) => (a === i && b === j) || (a === j && b === i)); return t ? t[2] : null; };
+const minutes = (s) => (s < 60 ? "<1 min" : Math.round(s / 60) + " min");
+
+function focusView() {
+  const s = byId.get(state.station), c = complexes.get(state.station);
+  const ps = [...(c ? c.stops : [s]), ...walksHere(state.station).flatMap((w) => [{ x: w.ax, y: w.ay }, { x: w.bx, y: w.by }])];
+  const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+
+// ------------------------------------------------------------------ labels: greedy, collision-free
+function place(cands, k) {
+  const out = [], boxes = [], seen = new Map();
+  const hit = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
+  cands.sort((a, b) => a.p - b.p);
+  for (const c of cands) {
+    const sx = c.x * k, sy = c.y * k;
+    if (c.dedupe && k < 9 && (seen.get(c.t) || []).some(([x, y]) => Math.hypot(x - sx, y - sy) < 150)) continue;
+    const rows = c.lines || [c.t], w = Math.max(...rows.map((t) => t.length * c.fs * (c.caps ? 0.74 : 0.55) + 2)), h = c.fs * 1.25 * rows.length, up = (rows.length - 1) * c.fs * 0.6;
+    let opts;
+    if (c.fixed) {
+      const rad = ((c.rot || 0) * Math.PI) / 180, bw = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad)), bh = Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad));
+      opts = [[0, c.fs * 0.35, "middle", [sx - bw / 2, sy - bh / 2, sx + bw / 2, sy + bh / 2]]];
+    } else {
+      const p = c.pad;
+      opts = [[p, c.fs * 0.35 - up, "start", [sx + p - 1, sy - h / 2, sx + p + w, sy + h / 2]], [-p, c.fs * 0.35 - up, "end", [sx - p - w, sy - h / 2, sx - p + 1, sy + h / 2]],
+        [0, -p - c.fs * 0.3 - up * 2, "middle", [sx - w / 2, sy - p - h, sx + w / 2, sy - p]], [0, p + c.fs * 0.95, "middle", [sx - w / 2, sy + p, sx + w / 2, sy + p + h]]];
+    }
+    const ok = opts.find((o) => !boxes.some((b) => hit(b, o[3])));
+    if (!ok) continue;
+    boxes.push(ok[3]);
+    out.push({ ...c, dx: ok[0], dy: ok[1], anchor: ok[2] });
+    if (c.dedupe) seen.set(c.t, [...(seen.get(c.t) || []), [sx, sy]]);
+  }
+  return out;
+}
+function wrap(name) {
+  if (name.length <= 14) return null;
+  let best = -1;
+  for (let i = 1; i < name.length - 1; i++) if ((name[i] === " " || name[i] === "-") && (best < 0 || Math.abs(i - name.length / 2) < Math.abs(best - name.length / 2))) best = i;
+  return best < 0 ? null : [name.slice(0, best), name.slice(best + 1)];
+}
+
+// ------------------------------------------------------------------ one map
+function render(opt, W, H) {
+  const k = K[state.zoom], c = focusView(), tx = W / 2 - c.x * k, ty = H / 2 - c.y * k, w = lineWidth(k), close = k >= 8;
+  const sel = state.selected === "yes" ? state.station : null, cx = sel != null ? complexes.get(sel) : null;
+  const pad = 30 / k, x0 = -tx / k - pad, x1 = (W - tx) / k + pad, y0 = -ty / k - pad, y1 = (H - ty) / k + pad;
+  const inView = (x, y) => x > x0 && x < x1 && y > y0 && y < y1;
+  const s = [];
+  s.push(`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.name)} at ${esc(byId.get(state.station).n)}"><g transform="translate(${tx},${ty}) scale(${k})">`);
+  D.land.forEach((l) => s.push(`<path d="${l.d}" fill="var(--${l.k === "region" ? "land2" : "land"})" stroke="var(--shore)" stroke-width=".75" ${NS}/>`));
+  D.parks.forEach((p) => s.push(`<path d="${p.d}" fill="var(--park)"/>`));
+  if (k >= 4) {
+    let d = "";
+    D.streets.forEach((l) => { if (inView(l[0], l[1]) || inView(l[l.length - 2], l[l.length - 1])) { d += "M" + l[0] + "," + l[1]; for (let i = 2; i < l.length; i += 2) d += "L" + l[i] + "," + l[i + 1]; } });
+    s.push(`<path d="${d}" fill="none" stroke="var(--street)" stroke-width="${(k < 8 ? 1 : 2.2) / k}" stroke-linecap="round"/>`);
+  }
+  const showLinks = k >= 2.3, all = k >= 4;
+  const visibleC = D.complexes.filter((q) => q.links.length && q.stops.some((p) => inView(p.x, p.y)) && (all || q.stops.length >= 3));
+  const visibleW = all ? D.walks.filter((q) => inView(q.ax, q.ay) || inView(q.bx, q.by)) : [];
+  if (showLinks) s.push(opt.under({ k, w, close, sel, cx, visibleC, visibleW }));
+  D.segs.forEach((q) => {
+    const d = q.d; let vis = false;
+    for (let i = 0; i < d.length; i += 2) if (inView(d[i], d[i + 1])) { vis = true; break; }
+    if (!vis && !(k < 3)) return;
+    q.c.forEach((col, j) => s.push(`<polyline points="${pts(offsetLine(d, ((j - (q.c.length - 1) / 2) * w * 1.1) / k))}" fill="none" stroke="#${D.colors[col]}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${NS}/>`));
+  });
+  if (showLinks && opt.over) s.push(opt.over({ k, w, close, sel, cx, visibleC, visibleW }));
+  // stops
+  D.stations.forEach((st) => {
+    if (!inView(st.x, st.y)) return;
+    const major = st.nodes.length > 1 || st.r.length >= 6;
+    if (k < 1.5 && !major) return;
+    (st.nodes.length ? st.nodes : [[st.x, st.y]]).forEach((n) => s.push(opt.stop(st, n, { k, w, ix: interchange.has(st.id) })));
+  });
+  if (showLinks && opt.top) s.push(opt.top({ k, w, close, sel, cx, visibleC, visibleW }));
+  if (sel != null) {
+    if (cx) cx.stops.forEach((p) => s.push(opt.selected(p, { k, w })));
+    else { const st = byId.get(sel); s.push(opt.selected(st, { k, w })); }
+    walksHere(sel).forEach((q) => {
+      const [x, y] = q.a === sel ? [q.bx, q.by] : [q.ax, q.ay];
+      s.push(opt.selected({ x, y }, { k, w }));
+    });
+  }
+  // labels
+  const cands = [];
+  D.stations.forEach((st) => {
+    if (!inView(st.x, st.y)) return;
+    const ix = interchange.has(st.id), major = st.r.length >= 5 || st.nodes.length >= 3;
+    let p = null;
+    if (st.id === sel) p = 0; else if (major && k >= 0.85) p = 2; else if (ix && k >= 1.8) p = 3; else if (k >= 3.6) p = 4;
+    if (p == null) return;
+    const spread = st.nodes.length > 1 ? Math.max(...st.nodes.map(([a, b]) => Math.hypot(a - st.x, b - st.y))) * k + 2 * k : 0;
+    cands.push({ key: "s" + st.id, t: st.n, x: st.x, y: st.y, fs: p === 0 ? (close ? 15.5 : 14) : close ? 15 : p <= 2 ? 12.5 : 11.5, pad: Math.max(spread, w * 1.6) + (p === 0 ? 9 : close ? 7 : 4),
+      p: p * 1000 - st.r.length * 10, dedupe: p > 1, lines: close && p !== 0 ? wrap(st.n) : null, plate: p === 0 });
+  });
+  D.labels.forEach((l) => {
+    const show = l.k === "borough" ? k < 2.6 : l.k === "region" ? k < 3.2 : l.k === "water" ? (l.t === "Harlem River" ? k >= 2.6 : k >= 0.7) : l.k === "hood" ? (l.big ? k >= 1.35 : k >= 2.4) && k < 12 : l.k === "park" ? (l.big ? k >= 2.2 : k >= 4.4) : false;
+    if (!show || !inView(l.x, l.y)) return;
+    cands.push({ key: "a" + l.t, t: l.t, x: l.x, y: l.y, fs: l.k === "borough" ? 13 : 11.5, pad: 0, rot: l.r, fixed: true, caps: l.k === "borough" || l.k === "region", p: 10000, area: l.k });
+  });
+  if (k >= 9) D.names.forEach((n, i) => { if (inView(n[1], n[2])) cands.push({ key: "n" + i, t: n[0], x: n[1], y: n[2], fs: 10.5, pad: 0, rot: n[3], fixed: true, p: 11000, area: "street" }); });
+  place(cands, k).forEach((l) => {
+    const fs = l.fs / k, x = l.x + l.dx / k, y = l.y + l.dy / k;
+    if (l.plate) {
+      const wp = l.t.length * l.fs * 0.56 + 14, left = l.anchor === "start" ? x - 7 / k : l.anchor === "end" ? x - wp / k + 7 / k : x - wp / 2 / k;
+      s.push(`<rect x="${left}" y="${y - fs * 1.05}" width="${wp / k}" height="${fs * 1.5}" rx="${4 / k}" fill="#0d0e10" stroke="var(--plate-edge)" stroke-width="${1 / k}"/><text x="${left + 7 / k}" y="${y}" font-size="${fs}" font-weight="800" fill="#fff">${esc(l.t)}</text>`);
+    } else if (l.area) {
+      const fill = l.area === "water" ? "var(--water-text)" : l.area === "park" ? "var(--park-text)" : "var(--area)", it = l.area === "water" ? 'font-style="italic"' : "", ls = l.caps ? `letter-spacing="${0.2 * fs}"` : "";
+      s.push(`<text x="${l.x}" y="${l.y}" dy="${fs * 0.35}" text-anchor="middle" font-size="${fs}" font-weight="${l.caps ? 750 : l.area === "street" ? 500 : 600}" fill="${fill}" ${it} ${ls} ${l.rot ? `transform="rotate(${l.rot} ${l.x} ${l.y})"` : ""}>${esc(l.t)}</text>`);
+    } else {
+      const body = l.lines ? l.lines.map((t, i) => `<tspan x="${x}" dy="${i ? fs * 1.2 : 0}">${esc(t)}</tspan>`).join("") : esc(l.t);
+      s.push(`<text x="${x}" y="${y}" text-anchor="${l.anchor}" font-size="${fs}" font-weight="750" fill="var(--text)" stroke="var(--land)" stroke-width="${3.2 / k}" stroke-linejoin="round" paint-order="stroke">${body}</text>`);
+    }
+  });
+  if (opt.chips) s.push(opt.chips({ k, w, close, sel, cx }));
+  s.push("</g></svg>");
+  return s.join("");
+}
+
+// ------------------------------------------------------------------ the shared bold stop, and the options
+const boldStop = (st, n, { k, w, ix }) => {
+  const b = nodeInfo.get(n[0] + "," + n[1]), bundle = b ? b.n : 1;
+  const r = k >= 4 ? Math.max(w * 1.05, (bundle * w * 1.1) / 2 + 1.6) : ix ? Math.max(3.6, (bundle * w * 1.1) / 2 + 1.6) : Math.max(1.8, w * 0.62 + (bundle - 1) * w * 0.55);
+  return `<circle cx="${n[0]}" cy="${n[1]}" r="${r / k}" fill="var(--fill)" stroke="var(--ring)" stroke-width="${(k >= 4 ? 2.5 : ix ? 1.9 : 1.2) / k}"/>`;
+};
+const ringSelected = (p, { k, w }) => `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(5, w * 1.2) / k}" fill="var(--fill)" stroke="var(--sel)" stroke-width="${2.8 / k}"/>`;
+const svg = (w, h, inner) => `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true" style="flex:none">${inner}</svg>`;
+const keyDot = (x) => `<circle cx="${x}" cy="6" r="3.4" fill="var(--fill)" stroke="var(--ring)" stroke-width="1.6"/>`;
+
+const OPTIONS = [
+  {
+    id: "minutes", n: "A", name: "Walk Minutes", tag: "My pick",
+    key: () => `<span>${svg(30, 12, `<path d="M6 6H24" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round"/>${keyDot(6)}${keyDot(24)}`)} Short transfer</span><span>${svg(30, 12, `<path d="M6 6H24" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1 5"/>${keyDot(6)}${keyDot(24)}`)} Longer walk</span>`,
+    why: "Barely there until you select a station. Then its links go dark and show MTA's minimum transfer time, so the map answers what riders ask: how far is it?",
+    risk: "Time labels add a little text up close. Very short links skip the label and rely on the panel.",
+    under: ({ k, w, close, sel, cx, visibleC, visibleW }) => {
+      let o = `<g fill="none" stroke-linecap="round">`;
+      if (k >= 4) visibleC.forEach((c) => { if (!cx || c.id !== cx.id) o += `<path d="${links(c, curve)}" stroke="var(--quiet)" stroke-width="${k < 9 ? 1.6 : 2.2}" ${NS}/>`; });
+      if (cx && cx.links.length) o += `<path d="${links(cx, curve)}" stroke="var(--ink)" stroke-width="${k < 9 ? 2.4 : 3}" ${NS}/>`;
+      visibleW.forEach((q) => { const on = q.a === sel || q.b === sel; o += `<path d="${curve(q.ax, q.ay, q.bx, q.by)}" stroke="var(--${on ? "ink" : "quiet"})" stroke-width="${3 / k}" stroke-dasharray="${0.1 / k} ${7 / k}"/>`; });
+      return o + "</g>";
+    },
+    stop: boldStop, selected: ringSelected,
+    chips: ({ k, sel, cx }) => {
+      if (sel == null || k < 9) return "";
+      const chip = (x, y, t) => { const w = t.length * 6.4 + 12; return `<g><rect x="${x - w / 2 / k}" y="${y - 9 / k}" width="${w / k}" height="${18 / k}" rx="${4 / k}" fill="var(--chip-bg)"/><text x="${x}" y="${y + 4.2 / k}" text-anchor="middle" font-size="${11.5 / k}" font-weight="800" fill="var(--chip-text)">${t}</text></g>`; };
+      let o = "";
+      if (cx) cx.links.forEach(([i, j]) => {
+        const a = cx.stops[i], b = cx.stops[j];
+        if (Math.hypot(a.x - b.x, a.y - b.y) * k < 64) return;
+        o += chip((a.x + b.x) / 2, (a.y + b.y) / 2, minutes(timeOf(cx, i, j)));
+      });
+      walksHere(sel).forEach((q) => { o += chip((q.ax + q.bx) / 2, (q.ay + q.by) / 2, "Walk " + minutes(q.s)); });
+      return o;
+    },
+  },
+  {
+    id: "ink", n: "B", name: "New York Ink", tag: "",
+    key: () => `<span>${svg(30, 12, `<path d="M6 6H24" stroke="var(--ink)" stroke-width="1.8"/><circle cx="6" cy="6" r="2.6" fill="var(--ink)"/><circle cx="24" cy="6" r="2.6" fill="var(--ink)"/>`)} Transfer</span><span>${svg(30, 12, `<path d="M6 6H24" stroke="var(--ink)" stroke-width="1.8" stroke-dasharray="3 3"/><circle cx="6" cy="6" r="2.6" fill="var(--ink)"/><circle cx="24" cy="6" r="2.6" fill="var(--ink)"/>`)} Walk to a separate station</span>`,
+    why: "Solid stop dots on each line, joined by a thin black stroke. This follows New York's own maps: the 1979 to 2025 map drew transfers as a thinner black stroke.",
+    risk: "Replaces your white ring markers. A thin black stroke can read as track at a glance, and it doesn't say how far the walk is.",
+    under: ({ k, visibleC, visibleW }) => {
+      let o = `<g fill="none" stroke="var(--ink)" stroke-linecap="round">`;
+      visibleC.forEach((c) => { o += `<path d="${links(c, straight)}" stroke-width="${k < 4 ? 1.2 : k < 9 ? 1.6 : 2}" ${NS}/>`; });
+      visibleW.forEach((q) => { o += `<path d="${straight(q.ax, q.ay, q.bx, q.by)}" stroke-width="${2 / k}" stroke-dasharray="${4 / k} ${4 / k}"/>`; });
+      return o + "</g>";
+    },
+    stop: (st, n, { k, w }) => {
+      const b = nodeInfo.get(n[0] + "," + n[1]) || { n: 1, tx: 1, ty: 0 }, r = Math.max(1.5, w * 0.36) / k, gap = (w * 1.1) / k;
+      let o = "";
+      for (let j = 0; j < b.n; j++) { const off = (j - (b.n - 1) / 2) * gap; o += `<circle cx="${n[0] - b.ty * off}" cy="${n[1] + b.tx * off}" r="${r}" fill="#0d0e10" stroke="#fff" stroke-width="${0.8 / k}"/>`; }
+      return o;
+    },
+    selected: (p, { k, w }) => `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(6, w * 1.4) / k}" fill="none" stroke="var(--sel)" stroke-width="${2.4 / k}"/>`,
+  },
+  {
+    id: "corridor", n: "C", name: "Station Corridor", tag: "",
+    key: () => `<span>${svg(30, 14, `<path d="M6 7H24" stroke="#0d0e10" stroke-width="9" stroke-linecap="round"/><path d="M6 7H24" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>`)} One station</span><span>${svg(30, 12, `<path d="M6 6H24" stroke="var(--ink)" stroke-width="1.8"/>${keyDot(6)}${keyDot(24)}`)} Walk to a separate station</span>`,
+    why: "A white corridor with a black edge fuses a station's stops into one shape, and a thin line marks separate stations. It's the London convention, used to join a station's dots as a unified whole.",
+    risk: "The heaviest option. At Times Sq it runs across several lines, and your classmate found a similar shape confusing.",
+    under: ({ k, visibleW }) => {
+      let o = `<g fill="none" stroke="var(--ink)" stroke-linecap="round">`;
+      visibleW.forEach((q) => { o += `<path d="${straight(q.ax, q.ay, q.bx, q.by)}" stroke-width="${2 / k}"/>`; });
+      return o + "</g>";
+    },
+    over: ({ k, w, visibleC }) => {
+      const o = k < 4 ? 6 : k < 9 ? 8 : 11;
+      let s = `<g fill="none" stroke-linecap="round">`;
+      visibleC.forEach((c) => { const d = links(c, straight); s += `<path d="${d}" stroke="#0d0e10" stroke-width="${o}" ${NS}/><path d="${d}" stroke="#fff" stroke-width="${o - 3.6}" ${NS}/>`; });
+      return s + "</g>";
+    },
+    stop: boldStop, selected: ringSelected,
+  },
+  {
+    id: "current", n: "D", name: "Current build", tag: "From your sample",
+    key: () => `<span>${svg(30, 12, `<path d="M3 6H27" stroke="var(--grey-link)" stroke-width="4" stroke-linecap="round"/>`)} Inside the station</span><span>${svg(30, 12, `<path d="M3 6H27" stroke="var(--grey-walk)" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="3 5"/>`)} Walk to a separate station</span>`,
+    why: "Grey curves under the lines, with a soft tint behind the selected station. It's what's running locally now, based on the design you sent.",
+    risk: "Curves and a tinted area can suggest a real walkway shape, which MTA's data doesn't provide. Grey links look a lot like the grey S and L lines.",
+    under: ({ k, cx, visibleC, visibleW }) => {
+      let o = "";
+      if (cx && cx.links.length) o += `<path d="${links(cx, straight)}" fill="none" stroke="var(--tint)" stroke-width="${48 / k}" stroke-linecap="round" style="filter:blur(${9 / k}px)"/>`;
+      o += `<g fill="none" stroke-linecap="round">`;
+      visibleC.forEach((c) => { o += `<path d="${links(c, curve)}" stroke="var(--grey-link)" stroke-width="${k < 4 ? 2.2 : k < 9 ? 3 : 3.8}" ${NS}/>`; });
+      visibleW.forEach((q) => { o += `<path d="${curve(q.ax, q.ay, q.bx, q.by)}" stroke="var(--grey-walk)" stroke-width="${3 / k}" stroke-dasharray="${3 / k} ${6.5 / k}"/>`; });
+      return o + "</g>";
+    },
+    stop: boldStop, selected: ringSelected,
+  },
+];
+
+// ------------------------------------------------------------------ page
+const grid = document.getElementById("grid");
+grid.innerHTML = OPTIONS.map((o) => `<article><div class="title"><b>${o.n}</b><h2>${o.name}</h2>${o.tag ? `<span class="tag">${o.tag}</span>` : ""}</div><div class="map" id="map-${o.id}"></div><div class="info"><div class="key">${o.key()}</div><p>${o.why}</p><p><em>Watch out:</em> ${o.risk}</p></div></article>`).join("");
+const groups = [
+  ["Station", "station", STATIONS.map(([v, t]) => [v, t])],
+  ["Zoom", "zoom", [["city", "City"], ["neighbourhood", "Neighbourhood"], ["street", "Street"]]],
+  ["Selected", "selected", [["yes", "Yes"], ["no", "No"]]],
+  ["Theme", "theme", [["light", "Light"], ["dark", "Dark"]]],
+];
+document.getElementById("controls").innerHTML = groups.map(([label, key, opts]) => `<div class="group" role="group" aria-label="${label}"><span>${label}</span>${opts.map(([v, t]) => `<button type="button" data-k="${key}" data-v="${v}">${t}</button>`).join("")}</div>`).join("");
+function draw() {
+  document.getElementById("sheet").className = "sheet " + state.theme;
+  document.querySelectorAll("[data-k]").forEach((b) => b.setAttribute("aria-pressed", String(state[b.dataset.k]) === b.dataset.v));
+  OPTIONS.forEach((o) => { const el = document.getElementById("map-" + o.id); el.innerHTML = render(o, el.clientWidth, el.clientHeight); });
+}
+document.getElementById("controls").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-k]"); if (!b) return;
+  state[b.dataset.k] = b.dataset.k === "station" ? Number(b.dataset.v) : b.dataset.v;
+  draw();
+});
+addEventListener("resize", draw);
+// a link can open a specific view: #station=611&zoom=street&selected=yes&theme=dark
+new URLSearchParams(location.hash.slice(1)).forEach((v, key) => { if (key in state) state[key] = key === "station" ? Number(v) : v; });
+draw();
+</script>
+</body>
+</html>

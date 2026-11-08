@@ -27,7 +27,10 @@ Every feature below is implemented and in the deployed app.
   - Track geometry from MTA's static data, drawn as one connected network with parallel lines bundled by trunk colour.
   - NYC land, rivers, parks, borough names, neighbourhood names and water labels, in the same projection.
   - The real street grid appears when you zoom in, with street names at block level, so you can find where you are.
-  - A station complex shows its separate stops joined by a thin link, explained by a key on the map.
+  - The default map stays clean: white stop markers, with a thin inner ring on stops that belong to a multi-stop station complex (a transfer hub). No route badges, no transfer lines. Hovering a stop (or stepping through stations with `]` and `[`) shows a small tooltip with its lines.
+  - Selecting a station highlights all of its physical stops as one group and gives each its own number, with the stop you tapped dark, while other stations step back. Stops never move: where they crowd together (Times Sq's 1/2/3 and 7 are a few metres apart in MTA's data), each keeps its own marker and its number sits just off it with a short leader. A compact black station sign at your stop lists its lines and, number by number, the lines at each other stop ("④ 1 2 3 ⑤ 7"), then "N connected stops numbered on the map · Explore connections". Hairline dashed connectors join the stops up close (dotted to a separate station); they're never solid, so they never read as track.
+  - The Connections tab lists the same numbered stops with each stop's own lines and MTA's minimum transfer time from yours. Pointing at a row rings that stop's number on the map; choosing one makes it your stop, moves the map there and shows its next trains. Tapping a number on the map does the same.
+  - Shuttle tracks are grey, MTA's shuttle colour, so the 42 St and Franklin Av shuttles carry a small S mark along their track at street zoom: the grey line from Times Sq to Grand Central is the S train, not a transfer.
   - Labels thin out by zoom level without overlapping.
   - Selecting a line or a trip dims everything else.
 - **Real-time arrival predictions.** All 8 MTA GTFS-Realtime feeds, refreshed every 15 seconds. Arrivals show `LIVE` or `SCHEDULED`, the destination, the clock time, and a countdown.
@@ -250,7 +253,7 @@ They liked being able to explore without logging in, and said the app was intuit
 | Feedback | Change |
 |---|---|
 | Can't see the street grid to find where they live | Real streets appear when zoomed in, with names at block level |
-| The Times Sq "pathway" shape was confusing | Stops are separate circles joined by a thin link, with a key on the map and a note on the station page |
+| The Times Sq "pathway" shape was confusing | No transfer shapes on the default map. Selecting a station highlights and numbers its real stops, a station sign shows your stop's lines, and the Connections tab matches each number to its lines, MTA's transfer time and its next trains |
 | Why is a username required after Google sign-in? | Clerk no longer requires a username at sign-up |
 | Saved cards hide trains until you click in, and can't save just one line (the A at 50 St) | Cards show every direction, can be narrowed to chosen lines, and a filtered station offers "Save A only" |
 
@@ -317,6 +320,7 @@ Static map and planner data are regenerated from MTA's GTFS:
 ```bash
 python3 -I scripts/build_transit_assets.py <gtfs_subway_dir> <Stations.csv> public/data
 python3 -I scripts/build_basemap.py <download_dir> public/data/map.json public/data/basemap.json
+python3 -I scripts/build_station_complexes.py <gtfs_subway.zip> public/data/plan.json public/data/map.json   # after build_transit_assets
 python3 -I scripts/build_streets.py public/data/map.json public/data/streets <centerline_page.json> [...]
 ```
 
@@ -324,6 +328,7 @@ python3 -I scripts/build_streets.py public/data/map.json public/data/streets <ce
 
 - **Scheduled estimates versus live predictions.** The planner's duration is a **schedule estimate**: median scheduled run times plus half the headway as the wait. Only the "next trains" beside each boarding station are live predictions. The two are always labelled differently, and the estimate does not change when a train is late.
 - **Service changes and delays.** The planner doesn't know about holidays, planned weekend or overnight service changes, or live delays and reroutes. It plans for "now" only, not a chosen departure time. A stretch with no scheduled service gives "no route" rather than a guess, and Staten Island has no subway link to the rest of the system.
+- **Transfers are relationships, not routes.** MTA's static data has no passageway geometry, and `transfers.txt` can't separate underground from street transfers (`transfer_type` is 2 on every row). So dashed means one MTA station complex (connected within fare control or by stairs, escalators or elevators, by MTA's definition), dotted means a documented transfer to a separate station, and neither claims where a passage runs. Times are MTA's minimum transfer times, not measured walks. Whitehall St-South Ferry is one complex but the feed lists no transfer, so no line is drawn. Stops that MTA places at almost the same spot (Times Sq's 1/2/3 and 7, Fulton St's A/C and J/Z) or at exactly the same spot on different levels (W 4 St, Queensboro Plaza) keep their real positions, so their markers overlap; their numbers, set off with leaders, are how you tell them apart and tap each one.
 - **Map.** It is a geographic drawing, not a schematic like MTA's own, so dense areas (Midtown and Lower Manhattan) stay crowded until you zoom in. Where bundled lines meet, the colour order can swap sides. The New Jersey shoreline is more generalised than NYC's.
 - **Search.** Typo tolerance is trigram-based, so very short words with swapped letters can miss.
 - **Clerk development instance.** A Clerk production instance needs a custom domain, and `vercel.app` isn't accepted. Sign-in therefore uses the development instance, with a "Development mode" notice and a 500-user cap.

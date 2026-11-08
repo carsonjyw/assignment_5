@@ -12,19 +12,34 @@
   --rule-strong: #0d0e10;
   /* map: geography is quiet, the network is vivid, selection is strongest */
   --water: #cbd9e3;
-  --land: #f7f5f0;
+  --land: #fbfaf8;
   --land-2: #ebe8e1;
   --park: #d6e6cc;
   --shore: #b4c3ce;
   --line-dim: #e4e6e8;
   --casing: #ffffff;
-  --street: #dcd9d1;
-  --selected-dot: #0d0e10;
-  --selected-halo: #ffffff;
+  --street: #eeece7;
+  /* transfer connectors: light neutral hairlines, always dashed or dotted (every line is solid, the shuttle's grey #7C858C
+     included): soft while a station is selected, clearer in Connections */
+  --connector: #9aa0a7;
+  --connector-soft: #c9cdd1;
+  --connector-focus: #5c636b; /* the one transfer being pointed at (your stop to another), still far lighter than a line */
+  --stop-hover: #1f5fff; /* the stop being pointed at, on the map or in Connections */
+  --leader: #3d434a; /* the short line from a stop number set off its stop to the stop's own marker */
+  /* selection: the selected stop is dark with a white ring; its station's other stops get a soft halo */
+  --stop-sel-fill: #0d0e10;
+  --stop-sel-ring: #ffffff;
+  --stop-sel-edge: #0d0e10;
+  --stop-halo: rgba(13, 14, 16, 0.12);
+  --tip-bg: #ffffff;
+  --tip-text: #0d0e10;
+  --tip-muted: #4a4d52;
+  --tip-edge: rgba(13, 14, 16, 0.3);
   --plate-edge: transparent;
-  --station-link: #0d0e10;
   --station-fill: #ffffff;
   --station-ring: #0d0e10;
+  --station-fill-quiet: #ffffff; /* other stations while one is selected */
+  --station-ring-quiet: #a7acb2;
   --area-text: #5b636c;
   --water-text: #2c5674;
   --park-text: #2e6338;
@@ -64,12 +79,24 @@
   --line-dim: #2e3339;
   --casing: #0d0e10;
   --street: #383c43;
-  --selected-dot: #ffffff;
-  --selected-halo: #0d0e10;
+  --connector: #8d939a;
+  --connector-soft: #4f555c;
+  --connector-focus: #b7bdc4;
+  --stop-hover: #8fb0ff;
+  --leader: #d0d4d9;
+  --stop-sel-fill: #0d0e10;
+  --stop-sel-ring: #ffffff;
+  --stop-sel-edge: #0d0e10;
+  --stop-halo: rgba(255, 255, 255, 0.24);
+  --tip-bg: #24272c;
+  --tip-text: #f4f4f2;
+  --tip-muted: #b9bcc0;
+  --tip-edge: rgba(255, 255, 255, 0.34);
   --plate-edge: #8a9098;
-  --station-link: #e8e8e6;
   --station-fill: #ffffff;
   --station-ring: #0d0e10;
+  --station-fill-quiet: #8f949a;
+  --station-ring-quiet: #0d0e10;
   --area-text: #a3abb3;
   --water-text: #84abc7;
   --park-text: #8fc39b;
@@ -97,12 +124,24 @@
     --line-dim: #2e3339;
     --casing: #0d0e10;
   --street: #383c43;
-  --selected-dot: #ffffff;
-  --selected-halo: #0d0e10;
+  --connector: #8d939a;
+  --connector-soft: #4f555c;
+  --connector-focus: #b7bdc4;
+  --stop-hover: #8fb0ff;
+  --leader: #d0d4d9;
+  --stop-sel-fill: #0d0e10;
+  --stop-sel-ring: #ffffff;
+  --stop-sel-edge: #0d0e10;
+  --stop-halo: rgba(255, 255, 255, 0.24);
+  --tip-bg: #24272c;
+  --tip-text: #f4f4f2;
+  --tip-muted: #b9bcc0;
+  --tip-edge: rgba(255, 255, 255, 0.34);
   --plate-edge: #8a9098;
-  --station-link: #e8e8e6;
     --station-fill: #ffffff;
     --station-ring: #0d0e10;
+    --station-fill-quiet: #8f949a;
+    --station-ring-quiet: #0d0e10;
     --area-text: #a3abb3;
     --water-text: #84abc7;
     --park-text: #8fc39b;
@@ -170,10 +209,59 @@ body {
 @keyframes hw-breathe { 50% { opacity: 0.35; } }
 .breathe { animation: hw-breathe 2.4s ease-in-out infinite; }
 @keyframes hw-ping { from { opacity: 0.9; transform: scale(0.5); } to { opacity: 0; transform: scale(1.6); } }
-.map-ping { transform-box: fill-box; transform-origin: center; animation: hw-ping 1.6s ease-out 2; }
+/* a brief ping on selection, then gone (it must not linger as an extra ring) */
+.map-ping { opacity: 0; transform-box: fill-box; transform-origin: center; animation: hw-ping 1.6s ease-out 2; }
 /* paths use pathLength="1", so the draw-on works at any zoom */
 @keyframes hw-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 .map-draw { stroke-dasharray: 1; animation: hw-draw 900ms cubic-bezier(.3,.6,.2,1) both; }
+
+/* map callouts (components/map/SubwayMap.tsx, placed by placeCallout): the selected station's sign, a compact
+   annotation, and the tooltip for a stop being pointed at */
+@keyframes hw-callout { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes hw-fade { from { opacity: 0; } to { opacity: 1; } }
+.map-fade { animation: hw-fade 200ms ease-out both; }
+.callout { position: absolute; left: 0; top: 0; width: max-content; }
+.callout-sign {
+  max-width: min(260px, calc(100% - 16px));
+  padding: 9px 9px 7px;
+  border-radius: 3px;
+  background: linear-gradient(var(--sign-text), var(--sign-text)) 0 3px / 100% 1px no-repeat, var(--sign);
+  color: var(--sign-text);
+  filter: drop-shadow(0 0 0.75px var(--plate-edge)) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.2));
+  animation: hw-callout 160ms cubic-bezier(.2,.7,.2,1) both;
+}
+.callout-tip {
+  max-width: min(290px, calc(100% - 16px)); /* room for 11 route marks on one row (Times Sq) */
+  padding: 7px 9px 8px;
+  border-radius: 6px;
+  background: var(--tip-bg);
+  color: var(--tip-text);
+  filter: drop-shadow(0 0 0.75px var(--tip-edge)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.14));
+  animation: hw-callout 120ms ease-out both;
+}
+.callout-title { font-weight: 800; line-height: 1.22; letter-spacing: -0.01em; text-wrap: balance; }
+/* the sign's way into Connections, and a stop's number in the tooltip (the same numbers as on the map) */
+.sign-explore { pointer-events: auto; color: var(--sign-text); text-decoration: underline; text-decoration-color: var(--sign-muted); text-underline-offset: 2px; cursor: pointer; }
+.sign-explore:hover { text-decoration-color: var(--sign-text); }
+.tip-num { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--tip-text); color: var(--tip-bg); font-size: 10.5px; font-weight: 800; letter-spacing: 0; }
+/* a stop's number on the sign, as the map draws it: white with dark ink, or (your stop) dark with a white ring */
+.sign-num { display: inline-grid; flex: none; place-items: center; width: 15px; height: 15px; border-radius: 50%; background: var(--sign-text); color: var(--sign); font-size: 9.5px; font-weight: 800; line-height: 1; letter-spacing: 0; }
+.sign-num-sel { width: 17px; height: 17px; background: var(--sign); color: var(--sign-text); box-shadow: inset 0 0 0 1.5px var(--sign-text); font-size: 10px; }
+.sign-dt { font-size: 8.5px; font-weight: 800; letter-spacing: 0.07em; line-height: 1; text-transform: uppercase; color: var(--sign-muted); }
+/* the pointer: a small notch on the side facing the stop, at --tip along that edge */
+.callout-notch { position: absolute; background: var(--tip-bg); }
+.callout-sign .callout-notch { background: var(--sign); }
+.callout[data-side="right"] > .callout-notch { left: -5px; top: calc(var(--tip) - 5px); width: 6px; height: 10px; clip-path: polygon(100% 0, 0 50%, 100% 100%); }
+.callout[data-side="left"] > .callout-notch { right: -5px; top: calc(var(--tip) - 5px); width: 6px; height: 10px; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.callout[data-side="top"] > .callout-notch { bottom: -5px; left: calc(var(--tip) - 5px); width: 10px; height: 6px; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.callout[data-side="bottom"] > .callout-notch { top: -5px; left: calc(var(--tip) - 5px); width: 10px; height: 6px; clip-path: polygon(0 100%, 50% 0, 100% 100%); }
+/* when the sign has to stand further off (every spot beside your stop would cover a stop number), its pointer reaches back */
+.callout-reach { position: absolute; background: var(--sign); }
+.callout[data-side="right"] > .callout-reach { left: calc(-4px - var(--reach, 0px)); top: calc(var(--tip) - 1px); width: var(--reach, 0px); height: 2px; }
+.callout[data-side="left"] > .callout-reach { right: calc(-4px - var(--reach, 0px)); top: calc(var(--tip) - 1px); width: var(--reach, 0px); height: 2px; }
+.callout[data-side="top"] > .callout-reach { bottom: calc(-4px - var(--reach, 0px)); left: calc(var(--tip) - 1px); width: 2px; height: var(--reach, 0px); }
+.callout[data-side="bottom"] > .callout-reach { top: calc(-4px - var(--reach, 0px)); left: calc(var(--tip) - 1px); width: 2px; height: var(--reach, 0px); }
+.map-kbd { display: inline-block; min-width: 1.5em; padding: 0 4px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; font: 700 11px/1.45 var(--font-inter-tight), system-ui, sans-serif; text-align: center; }
 
 /* map area labels: real place names, set quietly under the network */
 .map-area { fill: var(--area-text); font-weight: 600; paint-order: stroke; stroke: var(--land); stroke-width: 0; }
@@ -187,7 +275,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .flash { animation: none; background: var(--flash); }
-  .enter, .slide-in, .pop, .breathe, .map-ping, .map-draw { animation: none; }
+  .enter, .slide-in, .pop, .breathe, .map-ping, .map-draw, .map-fade, .callout-sign, .callout-tip { animation: none; }
   .map-draw { stroke-dasharray: none; stroke-dashoffset: 0; }
   .press, .press:active { transition: none; transform: none; }
 }

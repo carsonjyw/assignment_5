@@ -43,12 +43,14 @@ export function LiveBadge() {
   const tone = f.kind === "fresh" || f.kind === "partial" ? "text-sign-muted" : f.kind === "down" ? "text-[#ff9b93]" : f.kind === "loading" ? "text-sign-muted" : "text-[#ffd166]";
   return (
     // fixed minimum width: the label changes length every second without moving the header
-    <span className={`flex min-w-[7.6rem] items-center justify-end gap-1.5 text-[13px] font-semibold tabular sm:text-sm ${tone}`}
+    <span className={`flex items-center justify-end gap-1.5 whitespace-nowrap text-[13px] font-semibold tabular sm:min-w-[7.6rem] sm:text-sm ${tone}`}
       title={f.kind === "fresh" ? "MTA real-time data, checked every 15 seconds" : freshnessText(f)}>
       {f.kind === "fresh" || f.kind === "partial"
         ? <i aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-[#3ddc84] breathe" />
         : <span aria-hidden="true">{s.icon}</span>}
-      <span aria-hidden="true">{label}</span>
+      {/* phones: "Live · 14 s" (the header has no room for "ago") */}
+      <span aria-hidden="true" className="hidden sm:inline">{label}</span>
+      <span aria-hidden="true" className="min-w-[3.9rem] text-right sm:hidden">{label.replace(" ago", "")}</span>
       <span className="sr-only" aria-live="polite">{ANNOUNCE[f.kind]}</span>
     </span>
   );

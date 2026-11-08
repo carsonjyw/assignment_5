@@ -31,10 +31,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <ClerkProvider>
           <LiveProvider>
             <header className="z-30 bg-sign text-sign-text">
-              <div className="flex h-14 items-center gap-6 px-4 md:px-5">
-                <Link href="/" className="flex items-center gap-2 text-[17px] font-black tracking-[0.14em]" aria-label="HEADWAY, home">
+              <div className="flex h-14 items-center gap-3 px-4 sm:gap-6 md:px-5">
+                <Link href="/" className="flex items-center gap-2 text-[15px] font-black tracking-[0.1em] sm:text-[17px] sm:tracking-[0.14em]" aria-label="HEADWAY, home">
                   {/* wordmark: a white bar over the name, echoing the sign pinstripe */}
-                  <span aria-hidden="true" className="flex flex-col gap-[3px]"><i className="block h-[3px] w-5 bg-sign-text" /><i className="block h-[3px] w-3.5 bg-sign-text/60" /></span>
+                  <span aria-hidden="true" className="hidden flex-col gap-[3px] sm:flex"><i className="block h-[3px] w-5 bg-sign-text" /><i className="block h-[3px] w-3.5 bg-sign-text/60" /></span>
                   HEADWAY
                 </Link>
                 <TopTabs />
