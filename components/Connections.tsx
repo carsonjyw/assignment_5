@@ -33,7 +33,7 @@ export function StopNumber({ n, selected = false, size = 24 }: { n: number; sele
           <circle cx="12" cy="12" r="8" fill="#fff" stroke={INK} strokeWidth="2" />
         </>
       )}
-      <text x="12" y="12" dy="0.36em" textAnchor="middle" fontSize="11" fontWeight="800" fill={selected ? "#fff" : INK}>{n}</text>
+      <text x="12" y="16" textAnchor="middle" fontSize="11" fontWeight="800" fill={selected ? "#fff" : INK}>{n}</text>
     </svg>
   );
 }

@@ -264,17 +264,21 @@ const JourneyLayer = memo(function JourneyLayer({ legs, kb, colors }: { legs: nu
   );
 });
 
+/** A group drawn in screen px around a world point. Small marks with text are drawn this way: a world-unit font size
+ *  (under 1 unit when zoomed in) or an em-based offset puts the text off its mark in some browsers. */
+const atPx = (x: number, y: number, k: number) => `translate(${x} ${y}) scale(${1 / k})`;
+
 /** HEADWAY's own route mark (RouteMark's rounded square), drawn on a shuttle's track: "this grey line is the S". */
 function TrackMarks({ marks, k, kb, labels, label }: { marks: TrackMark[]; k: number; kb: number; labels: PlacedLabel[]; label: (route: string) => string }) {
-  const s = TRACK_MARK_PX / k;
+  const s = TRACK_MARK_PX;
   return (
     <g aria-hidden="true" className="pointer-events-none">
       {marks.map((m) => {
         const p = trackMarkAt(m, k, kb, labels);
         return p && (
-          <g key={m.route}>
-            <rect x={p.x - s / 2} y={p.y - s / 2} width={s} height={s} rx={3.5 / k} fill={`#${m.color}`} stroke="var(--land)" strokeWidth={1.5 / k} />
-            <text x={p.x} y={p.y} dy="0.36em" textAnchor="middle" fontSize={9.5 / k} fontWeight={800} fill={inkFor(m.color)}>{label(m.route)}</text>
+          <g key={m.route} transform={atPx(p.x, p.y, k)}>
+            <rect x={-s / 2} y={-s / 2} width={s} height={s} rx={3.5} fill={`#${m.color}`} stroke="var(--land)" strokeWidth={1.5} />
+            <text y={3.4} textAnchor="middle" fontSize={9.5} fontWeight={800} fill={inkFor(m.color)}>{label(m.route)}</text>
           </g>
         );
       })}
@@ -333,18 +337,18 @@ type Seg = [number, number, number, number];
 
 /** A stop's number, matching Connections: dark with a white ring for your stop, white with a soft halo for the others. */
 function NumberedDisc({ d, k }: { d: Disc; k: number }) {
-  const R = d.r / k;
+  const R = d.r; // px
   return d.sel ? (
-    <g>
-      <circle cx={d.x} cy={d.y} r={R + 3 / k} fill="var(--stop-sel-ring)" stroke="var(--stop-sel-edge)" strokeWidth={1.2 / k} />
-      <circle cx={d.x} cy={d.y} r={R} fill="var(--stop-sel-fill)" />
-      <text x={d.x} y={d.y} dy="0.36em" textAnchor="middle" fontSize={10.5 / k} fontWeight={800} fill="var(--stop-sel-ring)">{d.label}</text>
+    <g transform={atPx(d.x, d.y, k)}>
+      <circle r={R + 3} fill="var(--stop-sel-ring)" stroke="var(--stop-sel-edge)" strokeWidth={1.2} />
+      <circle r={R} fill="var(--stop-sel-fill)" />
+      <text y={3.8} textAnchor="middle" fontSize={10.5} fontWeight={800} fill="var(--stop-sel-ring)">{d.label}</text>
     </g>
   ) : (
-    <g className="map-fade">
-      <circle cx={d.x} cy={d.y} r={R + 3.5 / k} fill="var(--stop-halo)" />
-      <circle cx={d.x} cy={d.y} r={R} fill="var(--station-fill)" stroke="var(--station-ring)" strokeWidth={2 / k} />
-      <text x={d.x} y={d.y} dy="0.36em" textAnchor="middle" fontSize={10.5 / k} fontWeight={800} fill="var(--stop-sel-fill)">{d.label}</text>
+    <g transform={atPx(d.x, d.y, k)} className="map-fade">
+      <circle r={R + 3.5} fill="var(--stop-halo)" />
+      <circle r={R} fill="var(--station-fill)" stroke="var(--station-ring)" strokeWidth={2} />
+      <text y={3.8} textAnchor="middle" fontSize={10.5} fontWeight={800} fill="var(--stop-sel-fill)">{d.label}</text>
     </g>
   );
 }
